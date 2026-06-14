@@ -1,0 +1,2151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ritmo Simulator · CMUS</title>
+<script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
+<style>
+/* ====== base (del catálogo, con los 4 niveles) ====== */
+
+  :root{
+    --bg:#0a0e16; --ink:#eef2f8; --muted:#8a97ad; --accent:#3b82f6;
+    --line:rgba(255,255,255,0.12); --paper:#ffffff; --on:#1f9d55; --off:#5a667a;
+    --bas:#22d3ee; --rec:#3b82f6; --oca:#d4af37; --pun:#a855f7;
+  }
+  *{box-sizing:border-box}
+  html{background:#0a0e16;}
+  body{
+    margin:0; color:var(--ink); padding:20px 26px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:
+      radial-gradient(1200px 620px at 72% -12%, rgba(46,86,160,0.9), transparent 62%),
+      radial-gradient(950px 540px at 8% 112%, rgba(30,60,120,0.85), transparent 58%),
+      linear-gradient(160deg, #102449 0%, #0c1730 50%, #070d1e 100%);
+    min-height:100vh;
+  }
+  h1{font-size:24px; font-weight:800; margin:0 0 4px;}
+  /* GENERADOR compacto para iPad (sin scroll): el score escala a la altura disponible */
+  #view-gen.active{ display:flex; flex-direction:column; min-height: calc(100vh - 40px); }
+  #view-gen header{ margin-bottom:6px; }
+  #view-gen .meta{ margin:2px 0 6px; }
+  #scoreWrap{ flex:1 1 auto; min-height:0; display:flex; }
+  #score{ flex:1 1 auto; display:flex; align-items:center; }
+  #score svg{ width:100%; height:auto; max-height:100%; }
+  @media (max-width:1200px){
+    body{ padding:14px 18px; }
+    .applogo{ font-size:22px; margin-bottom:8px; }
+    h1{ font-size:20px; }
+  }
+  .sub{color:var(--muted); font-size:14px; margin-bottom:16px; max-width:820px; line-height:1.55;}
+  .sub b{color:var(--ink);}
+  .legend{display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-bottom:14px;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .dot{width:11px;height:11px;border-radius:50%;display:inline-block;}
+  .bar{display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap;}
+  .bar button{border:0; background:var(--accent); color:#fff; padding:10px 16px; border-radius:10px; cursor:pointer; font-size:13px; font-weight:700;}
+  .bar button.ghost{background:rgba(255,255,255,0.08); color:var(--ink); border:1px solid var(--line);}
+  .bar .count{color:var(--muted); font-size:13px;}
+  .tabs{display:flex; gap:6px; background:rgba(0,0,0,0.35); border:1px solid var(--line); border-radius:12px; padding:5px; margin-bottom:16px; width:fit-content;}
+  .tabs button{border:0; background:transparent; color:var(--muted); padding:9px 18px; border-radius:9px; cursor:pointer; font-size:14px; font-weight:600;}
+  .tabs button.active{background:var(--accent); color:#fff;}
+  .tabhint{color:var(--muted); font-size:13px; margin:-6px 0 14px;}
+  .list{display:grid; grid-template-columns:repeat(auto-fill,minmax(520px,1fr)); gap:14px;}
+  .cell{background:rgba(255,255,255,0.04); border:1px solid var(--line); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:10px; transition:border-color .15s, background .15s;}
+  .meters-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:18px;}
+  .meters-col{display:flex; flex-direction:column; gap:14px;}
+  .meters-colhead{color:var(--muted); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding-left:2px; margin-bottom:2px;}
+  .meter-card{align-items:center; justify-content:center; gap:16px; padding:26px 16px; min-height:120px;}
+  .meter-card .row1{flex-direction:column; gap:16px; align-items:center; width:auto;}
+  .meter-card .meter-name b{font-size:40px; font-weight:800; line-height:0.9; color:#fff;}
+  .meter-card.off .meter-name b{color:var(--muted);}
+  .meter-card.on{border-color:rgba(31,157,85,0.5); background:rgba(31,157,85,0.06);}
+  @media (max-width:900px){ .meters-grid{grid-template-columns:1fr;} }
+  .cell.on{border-color:rgba(31,157,85,0.55); background:rgba(31,157,85,0.07);}
+  .cell.off{opacity:0.7;}
+  .row1{display:flex; align-items:center; gap:12px;}
+  .cell .name{font-weight:700; font-size:14px; flex:1; line-height:1.25;}
+  .cell .pulses{font-size:11px; color:var(--muted); border:1px solid var(--line); padding:2px 7px; border-radius:6px; white-space:nowrap;}
+  .toggle{position:relative; width:48px; height:28px; flex:0 0 48px; cursor:pointer;}
+  .toggle input{opacity:0; width:0; height:0; position:absolute;}
+  .track{position:absolute; inset:0; background:var(--off); border-radius:20px; transition:background .15s;}
+  .knob{position:absolute; top:3px; left:3px; width:22px; height:22px; background:#fff; border-radius:50%; transition:left .15s;}
+  .toggle input:checked + .track{background:var(--on);}
+  .toggle input:checked + .track + .knob{left:23px;}
+  .score{background:var(--paper); border-radius:10px; padding:6px 10px; min-height:164px; display:flex; align-items:center; overflow:hidden;}
+  .score svg{max-width:100%; height:auto;}
+  .freq{display:flex; gap:6px;}
+  .freq button{flex:1; border:1px solid var(--line); background:rgba(255,255,255,0.04); color:var(--muted); padding:7px 6px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;}
+  .freq button.sel.bas{background:var(--bas); color:#06222a; border-color:var(--bas);}
+  .freq button.sel.rec{background:var(--rec); color:#fff; border-color:var(--rec);}
+  .freq button.sel.oca{background:var(--oca); color:#1a1407; border-color:var(--oca);}
+  .freq button.sel.pun{background:var(--pun); color:#fff; border-color:var(--pun);}
+  .fb{display:flex; gap:6px; margin-top:2px;}
+  .fb button{flex:1; border:1px solid var(--line); background:rgba(255,255,255,0.04); color:var(--muted); padding:6px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;}
+  .fb button.mal.sel{background:#c0392b; color:#fff; border-color:#c0392b;}
+  .fb button.quitar.sel{background:#8a6d1f; color:#fff; border-color:#8a6d1f;}
+  .badge-var{font-size:10px; font-weight:700; color:#9cc4ff; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.4); padding:2px 7px; border-radius:6px; white-space:nowrap;}
+  .cell{cursor:grab;}
+  .cell.dragging{opacity:0.45;}
+  .cell.dragover{outline:2px dashed var(--accent); outline-offset:2px;}
+  .grouphdr{display:flex; align-items:center; gap:8px; margin:18px 0 6px;}
+  .grouphdr .gchip{width:14px;height:14px;border-radius:4px;}
+  .grouphdr input{background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--ink); border-radius:7px; padding:4px 9px; font-size:13px; font-weight:700;}
+  .grouphdr .gcount{color:var(--muted); font-size:12px;}
+  .cell .gtag{font-size:10px; font-weight:700; padding:2px 7px; border-radius:6px; color:#0a0e16;}
+  .cell .ungroup{font-size:11px; color:var(--muted); background:none; border:1px solid var(--line); border-radius:6px; padding:2px 8px; cursor:pointer;}
+  #out{position:fixed; inset:0; background:rgba(6,10,20,0.9); display:none; align-items:center; justify-content:center; z-index:50; padding:30px;}
+  #out .box{background:#0e1830; border:1px solid var(--line); border-radius:16px; padding:20px; max-width:720px; width:100%; max-height:82vh; overflow:auto;}
+  #out textarea{width:100%; height:340px; background:#06101f; color:#cfe; border:1px solid var(--line); border-radius:10px; padding:12px; font-family:ui-monospace,monospace; font-size:12px;}
+  #out .row{display:flex; gap:10px; margin-top:12px;}
+  /* === unificación variaciones === */
+  .vartoggle{font-size:11px; font-weight:700; color:#9cc4ff; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.4); padding:3px 9px; border-radius:7px; cursor:pointer; white-space:nowrap;}
+  .vartoggle:hover{background:rgba(59,130,246,0.28);}
+  .varwrap{display:flex; flex-direction:column; gap:8px; margin-top:4px; border-top:1px dashed var(--line); padding-top:10px;}
+  .varitem{background:rgba(255,255,255,0.03); border:1px solid var(--line); border-radius:11px; padding:10px; display:flex; flex-direction:column; gap:8px;}
+  .varitem.isrep{border-color:#facc15; background:rgba(250,204,21,0.06);}
+  .varitem.voff{opacity:0.5;}
+  .vtoggle{width:40px; height:24px; flex:0 0 40px;}
+  .vtoggle .knob{width:18px; height:18px;}
+  .vtoggle input:checked + .track + .knob{left:19px;}
+  .varhead{display:flex; align-items:center; gap:8px;}
+  .varhead .vname{flex:1; font-size:13px; font-weight:600;}
+  .varhead input.vname-edit{flex:1; background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--ink); border-radius:7px; padding:4px 8px; font-size:13px;}
+  .star{background:none; border:1px solid var(--line); border-radius:7px; padding:3px 8px; cursor:pointer; font-size:13px; color:var(--muted);}
+  .star.on{color:#facc15; border-color:#facc15; background:rgba(250,204,21,0.12);}
+  .repbadge{font-size:10px; font-weight:700; color:#facc15; background:rgba(250,204,21,0.12); border:1px solid #facc15; padding:2px 7px; border-radius:6px; white-space:nowrap;}
+  .miniscore{background:var(--paper); border-radius:8px; padding:4px 8px; min-height:120px; display:flex; align-items:center; overflow:hidden;}
+  .miniscore svg{max-width:100%; height:auto;}
+  .varctl{display:flex; gap:6px; flex-wrap:wrap;}
+  .vdel{font-size:11px; color:#e08; background:none; border:1px solid var(--line); border-radius:7px; padding:4px 9px; cursor:pointer;}
+  .vedit{font-size:11px; color:var(--muted); background:none; border:1px solid var(--line); border-radius:7px; padding:4px 9px; cursor:pointer;}
+  .vaddrow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:2px;}
+  .vaddrow input{flex:1; min-width:160px; background:#06101f; border:1px solid var(--line); color:#cfe; border-radius:8px; padding:7px 9px; font-family:ui-monospace,monospace; font-size:12px;}
+  .vaddrow button{font-size:12px; font-weight:600; background:rgba(255,255,255,0.08); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:7px 12px; cursor:pointer;}
+  .grpname-edit{background:rgba(255,255,255,0.06); border:1px solid var(--line); color:var(--ink); border-radius:7px; padding:3px 8px; font-size:13px; font-weight:700; width:200px;}
+  .hint-mono{font-size:11px; color:var(--muted); font-family:ui-monospace,monospace;}
+
+/* ====== reglas propias del generador ====== */
+
+  
+  
+  
+  
+  header{display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:10px;}
+  h1{font-size:24px; font-weight:800; margin:0; color:#fff;}
+  .meta-inline{color:var(--muted); font-size:13px; margin:0 0 10px;}
+  .controls{display:flex; flex-direction:row; gap:14px; align-items:center; flex-wrap:wrap; justify-content:flex-end;}
+  .actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  /* botones al mismo tamaño que las pestañas del nav */
+  .controls button{border:0; background:var(--accent); color:#fff; padding:11px 22px; border-radius:11px; cursor:pointer; font-size:15px; font-weight:700;}
+  .controls button.big{font-size:15px; font-weight:700; padding:11px 22px; border-radius:11px;}
+  .controls button.primary{background:#1f9d55;}              /* Empezar: verde */
+  .controls button.primary.on{background:#c0392b;}           /* sonando: rojo (Parar) */
+  .controls button.help{background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink); font-weight:700;}
+  .controls button.help.on{background:#c0392b; color:#fff; border-color:#c0392b;}
+  .rhythm-toggle{display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink); padding:11px 18px; border-radius:11px; font-size:15px; font-weight:700; cursor:pointer; user-select:none;}
+  .rhythm-toggle input{width:16px; height:16px; accent-color:#1f9d55; cursor:pointer;}
+  .rhythm-toggle:has(input:checked){background:rgba(31,157,85,0.18); border-color:#1f9d55;}
+  .metropanel{border:1px solid var(--line); border-radius:12px; padding:8px 14px; background:rgba(0,0,0,0.2);}
+  .metropanel-title{color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; margin-bottom:5px;}
+  .meta{color:var(--muted); font-size:13px; margin-bottom:10px;}
+  #score{background:var(--paper); border-radius:14px; padding:14px 10px; box-shadow:0 10px 40px rgba(0,0,0,0.4);}
+  #score svg{display:block; margin:0 auto;}
+  .err{color:#ffb4b4; font-size:13px; white-space:pre-wrap;}
+  .bpmlbl{color:var(--ink); font-size:13px; display:inline-flex; align-items:center; gap:8px; font-weight:600;}
+  .bpmlbl input{width:64px; background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:6px 8px; font-size:14px; font-weight:700; text-align:center;}
+  /* modal de ayuda rítmica */
+  .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; display:none; align-items:center; justify-content:center; padding:20px;}
+  .modal-bg.show{display:flex;}
+  .modal{background:#13203c; border:1px solid var(--line); border-radius:16px; padding:24px; max-width:440px; box-shadow:0 20px 60px rgba(0,0,0,0.5);}
+  .modal-t{font-size:20px; font-weight:800; color:#fff; margin-bottom:12px;}
+  .modal p{color:var(--ink); font-size:14px; line-height:1.55; margin:0 0 12px;}
+  .modal-row{display:flex; gap:10px; justify-content:flex-end; margin-top:18px;}
+  .modal-row button{border:0; padding:11px 18px; border-radius:10px; cursor:pointer; font-size:14px; font-weight:700;}
+  .modal-row button.primary{background:#1f9d55; color:#fff;}
+  .modal-row button.ghost{background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink);}
+  #pulseHL{position:absolute; top:0; left:0; pointer-events:none; z-index:5;
+    background:rgba(59,130,246,0.18); border-radius:6px; display:none;
+    transition:left .05s linear, top .05s linear, width .05s linear;}
+  #pulseHL.accent{background:rgba(34,211,238,0.30);}
+  #countIn{position:absolute; inset:0; z-index:10; display:none;
+    align-items:center; justify-content:center; pointer-events:none;
+    font-size:120px; font-weight:800; color:var(--accent);
+    text-shadow:0 2px 20px rgba(0,0,0,0.5);}
+
+/* ====== navegación de la app ====== */
+  .appnav{display:flex; gap:8px; background:rgba(0,0,0,0.35); border:1px solid var(--line); border-radius:14px; padding:5px; width:fit-content; margin:0;}
+  .appnav button{border:0; background:transparent; color:var(--muted); padding:11px 22px; border-radius:11px; cursor:pointer; font-size:15px; font-weight:700;}
+  .appnav button.active{background:var(--accent); color:#fff;}
+  .view{display:none;}
+  .view.active{display:block;}
+  /* franja superior: banda con degradado propio, contenido centrado y aireado */
+  .apphead{ text-align:center; padding:18px 20px 14px; margin:-20px -26px 16px;
+    background:linear-gradient(180deg, rgba(34,72,150,0.55), rgba(12,23,48,0) 100%);
+    border-bottom:1px solid rgba(255,255,255,0.06); }
+  .applogo{font-size:44px; font-weight:800; color:#fff; margin:0; line-height:1.0; letter-spacing:-0.5px;}
+  .applogo span{color:#22d3ee;}
+  .appsub{color:#9fb4d8; font-size:13px; font-weight:600; margin-top:4px; letter-spacing:.02em;}
+</style>
+</head>
+<body>
+  <div class="apphead">
+    <div class="applogo">Ritmo <span>Simulator</span></div>
+    <div class="appsub">CMUS A Coruña · Profesor: Iago González · Curso: 4ºGE</div>
+  </div>
+
+  <!-- ======= VISTA GENERADOR ======= -->
+  <div id="view-gen" class="view active">
+
+  <header>
+    <div class="appnav">
+      <button id="nav-gen" class="active" onclick="showView('gen')">Generador</button>
+      <button id="nav-cat" onclick="showView('cat')">Catálogo de ritmos</button>
+    </div>
+    <div class="controls">
+      <div class="actions">
+        <button id="startBtn" class="big primary" onclick="toggleMetro()">▶ Empezar</button>
+        <label class="rhythm-toggle"><input type="checkbox" id="rhythmChk" onchange="onRhythmToggle(this)"> 🛟 Ayuda rítmica</label>
+        <button class="big" onclick="nuevoEjercicio()">Generar ejercicio nuevo</button>
+      </div>
+      <div class="metropanel">
+        <div class="metropanel-title">Ajustes del metrónomo</div>
+        <label class="bpmlbl">Pulso/min
+          <input id="bpm" type="number" min="20" max="160" value="45" onchange="setBpm(this.value)">
+        </label>
+      </div>
+    </div>
+  </header>
+  <div class="meta-inline" id="meta"></div>
+  <div id="scoreWrap" style="position:relative;">
+    <div id="pulseHL"></div>
+    <div id="countIn"></div>
+    <div id="score"></div>
+  </div>
+
+  <!-- modal de ayuda rítmica -->
+  <div id="rhythmModal" class="modal-bg">
+    <div class="modal">
+      <div class="modal-t">🛟 Ayuda rítmica</div>
+      <p>Esta función reproduce <b>el ritmo escrito en la partitura</b> junto al metrónomo, para que lo oigas de referencia.</p>
+      <p style="color:var(--muted)">Úsala <b>solo cuando tengas dudas</b> con algún ritmo concreto. Lo ideal es practicar opcionalmente con el metrónomo, pero sin la ayuda. ¿Quieres continuar?</p>
+      <div class="modal-row">
+        <button class="ghost" onclick="closeRhythmModal()">Cancelar</button>
+        <button class="primary" onclick="confirmRhythmHelp()">Sí, reproducir el ritmo</button>
+      </div>
+    </div>
+  </div>
+
+
+  </div>
+
+  <!-- ======= VISTA CATÁLOGO ======= -->
+  <div id="view-cat" class="view">
+
+  <div class="appnav" style="margin-bottom:16px">
+    <button class="" onclick="showView('gen')">Generador</button>
+    <button class="active" onclick="showView('cat')">Catálogo de ritmos</button>
+  </div>
+
+  <h1>Catálogo de ritmos</h1>
+  <div class="sub">Elige qué <b>compases</b> y <b>células rítmicas</b> pueden aparecer en los ejercicios.</div>
+
+  <div class="legend" id="cellLegend">
+    <span><i class="dot" style="background:var(--bas)"></i>Básico · el más elemental/frecuente</span>
+    <span><i class="dot" style="background:var(--rec)"></i>Recurrente · sin límite</span>
+    <span><i class="dot" style="background:var(--oca)"></i>Ocasional · máx. 2/sistema</span>
+    <span><i class="dot" style="background:var(--pun)"></i>Puntual · 1/sistema</span>
+    <span><i class="dot" style="background:#9cc4ff"></i>✦ variaciones · grupo desplegable</span>
+  </div>
+
+  <div class="bar" id="cellBar">
+    <button onclick="cat_exportSel()">Exportar selección</button>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+  <div class="tabhint" id="tabhint"></div>
+  <div class="list" id="list"></div>
+
+  <div id="out"><div class="box">
+    <div style="font-weight:700;margin-bottom:8px">Selección (cópiala y pásamela)</div>
+    <textarea id="outtext" readonly></textarea>
+    <div class="row">
+      <button onclick="cat_copyOut()">Copiar</button>
+      <button class="ghost" onclick="document.getElementById('out').style.display='none'">Cerrar</button>
+    </div>
+  </div></div>
+
+
+  </div>
+
+<script>
+const VF = Vex.Flow;
+function showView(v){
+  document.getElementById('view-gen').classList.toggle('active', v==='gen');
+  document.getElementById('view-cat').classList.toggle('active', v==='cat');
+  // sincronizar el estado activo de TODOS los navs (generador y catálogo)
+  document.querySelectorAll('.appnav').forEach(nav=>{
+    const btns=nav.querySelectorAll('button');
+    if(btns[0]) btns[0].classList.toggle('active', v==='gen');
+    if(btns[1]) btns[1].classList.toggle('active', v==='cat');
+  });
+}
+</script>
+
+<!-- módulo catálogo (encapsulado) -->
+<script>
+(function(){
+
+/* VF global */
+
+/* ============================================================
+   MODELO UNIFICADO
+   Cada CELL puede ser:
+     - simple: una sola figura (notes).
+     - grupo de variaciones: tiene `vars:[{id,name,notes,tuplet?,freq,mal,quitar}]`
+       y una de ellas es la representativa (repId).
+   Campos de la célula:
+     id, name, block, ts, pulses, def, freq ('bas'|'rec'|'oca'|'pun')
+     notes (figuras de la representativa si es simple)
+     vars  (array de variaciones; si existe -> es grupo)
+     repId (id de la variación representativa)
+   dur: '16','8','q','h' + 'd' puntillo + 'r' silencio.  tuplet opcional.
+   ============================================================ */
+
+const FREQ_ORDER = ['bas','rec','oca','pun'];
+const FREQ_LABEL = {bas:'Básico', rec:'Recurrente', oca:'Ocasional', pun:'Puntual'};
+
+// helper para crear una variación
+function V(id,name,notes,extra){ const o=Object.assign({id,name,notes,freq:'rec',mal:false,quitar:false,on:true}, extra||{}); if(o.off){ o.on=false; delete o.off; } return o; }
+
+const CELLS = [
+  // ================= TERNARIO (pulso = negra con puntillo = 6 semis) =================
+  {id:'t_3cor', name:'3 corcheas', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'bas', notes:['8','8','8']},
+  {id:'t_npunt', name:'Negra con puntillo', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'bas', notes:['qd']},
+  {id:'t_6semi', name:'Base 6 semicorcheas', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'rec', notes:['16','16','16','16','16','16']},
+
+  // grupo: negra+corchea / corchea+negra (síncopa ternaria)
+  {id:'t_negcor', name:'Negra-corchea (y síncopa)', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'rec',
+    repId:'t_negcor_v1', vars:[
+      V('t_negcor_v1','Negra + corchea',['q','8'],{freq:'rec'}),
+      V('t_negcor_v2','Corchea + negra (síncopa ternaria)',['8','q'],{freq:'oca'}),
+    ]},
+
+  // grupo: Combi 2 semi A (cuatro colocaciones)
+  {id:'t_2semiA', name:'Combi 2 semi A', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'oca',
+    repId:'t_2semiA_v1', vars:[
+      V('t_2semiA_v1','C·C·2S',['8','8','16','16'],{freq:'oca'}),
+      V('t_2semiA_v2','C·2S·C',['8','16','16','8'],{freq:'oca'}),
+      V('t_2semiA_v3','2S·C·C',['16','16','8','8'],{freq:'oca'}),
+      V('t_2semiA_v4','2S·C·2S',['16','16','8','16','16'],{freq:'pun'}),
+    ]},
+
+  // grupo: Combi 2 semi B (2S+N y variantes)
+  {id:'t_2semiB', name:'Combi 2 semi B', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'pun',
+    repId:'t_2semiB_v1', vars:[
+      V('t_2semiB_v1','2S·N',['16','16','q'],{freq:'pun'}),
+      V('t_2semiB_v2','N·2S',['q','16','16'],{freq:'pun'}),
+      V('t_2semiB_v3','C·zC·2S',['8','8r','16','16'],{freq:'pun'}),
+    ]},
+
+  // grupo: Combi 4 semi (4 colocaciones de la corchea)
+  {id:'t_4semi', name:'Combi 4 semi', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'pun',
+    repId:'t_4semi_v1', vars:[
+      V('t_4semi_v1','S·S·S·S·C',['16','16','16','16','8'],{freq:'pun'}),
+      V('t_4semi_v2','C·S·S·S·S',['8','16','16','16','16'],{freq:'oca'}),
+      V('t_4semi_v3','S·S·C·S·S',['16','16','8','16','16'],{freq:'pun'}),
+      V('t_4semi_v4','S·S·S·C·S',['16','16','16','8','16'],{freq:'pun'}),
+    ]},
+
+  {id:'t_falsoNDP', name:'Falso NDP (S·Cp·C)', block:'ternario', ts:'3/8', pulses:1, def:false, freq:'pun', notes:['16','8d','8']},
+  {id:'t_sincDoble', name:'Síncopa doble (S·C·C·S)', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'pun', notes:['16','8','8','16']},
+
+  // grupo: Bonus final (2 variantes) — opcional (off)
+  {id:'t_bonus', name:'Bonus final', block:'ternario', ts:'3/8', pulses:1, def:false, freq:'pun',
+    repId:'t_bonus_v1', vars:[
+      V('t_bonus_v1','C·S·C·S',['8','16','8','16'],{freq:'pun'}),
+      V('t_bonus_v2','S·C·S·C',['16','8','16','8'],{freq:'pun'}),
+    ]},
+
+  {id:'t_3semi', name:'Corchea punteada + 3 semi (Cp·S·S·S)', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'pun', notes:['8d','16','16','16']},
+  {id:'t_ndp', name:'NDP (corchea punt. de paso)', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'oca', notes:['8d','16','8']},
+
+  // grupo: Silencio de semicorchea (posiciones del silencio en las 6 semis)
+  {id:'t_silS', name:'Silencio de semicorchea', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'pun',
+    repId:'t_silS_v1', vars:[
+      V('t_silS_v1','zS en 1ª',['16r','16','16','16','16','16'],{freq:'pun'}),
+      V('t_silS_v2','zS en 2ª',['16','16r','16','16','16','16'],{freq:'pun'}),
+      V('t_silS_v3','zS en 3ª',['16','16','16r','16','16','16'],{freq:'pun'}),
+      V('t_silS_v4','zS en 4ª',['16','16','16','16r','16','16'],{freq:'pun'}),
+      V('t_silS_v5','zS en 5ª',['16','16','16','16','16r','16'],{freq:'pun'}),
+    ]},
+
+  // grupo: GVE (dosillo / cuatrillo)
+  {id:'t_gve', name:'GVE (grupos de valoración especial)', block:'ternario', ts:'3/8', pulses:1, def:true, freq:'oca',
+    repId:'t_gve_v1', vars:[
+      V('t_gve_v1','Dosillo de corcheas (2:3)',[{d:'8',t:1},{d:'8',t:1}],{freq:'oca', tuplet:{first:2,num:2,notes:3}}),
+      V('t_gve_v2','Cuatrillo de corcheas (4:3)',[{d:'8',t:1},{d:'8',t:1},{d:'8',t:1},{d:'8',t:1}],{freq:'oca', tuplet:{first:4,num:4,notes:3}}),
+    ]},
+
+  // ================= BINARIO (pulso = negra = 4 semis) =================
+  {id:'b_negra', name:'Negra', block:'binario', ts:'2/4', pulses:1, def:true, freq:'bas', notes:['q']},
+  {id:'b_blanca34', name:'Blanca (solo 3/4)', block:'binario', ts:'3/4', pulses:2, def:true, freq:'oca', notes:['h'], onlyTS:'3/4', note:'ocupa 2 pulsos; solo aparece en 3/4'},
+  {id:'b_2cor', name:'2 corcheas', block:'binario', ts:'2/4', pulses:1, def:true, freq:'bas', notes:['8','8']},
+  {id:'b_npuntC', name:'Negra con puntillo + corchea', block:'binario', ts:'2/4', pulses:2, def:true, freq:'rec', notes:['qd','8']},
+  {id:'b_4semi', name:'Base 4 semicorcheas', block:'binario', ts:'2/4', pulses:1, def:true, freq:'rec', notes:['16','16','16','16']},
+
+  // grupo: Combi 2 semi (C·S·S / S·S·C)
+  {id:'b_2semi', name:'Combi 2 semi', block:'binario', ts:'2/4', pulses:1, def:true, freq:'rec',
+    repId:'b_2semi_v1', vars:[
+      V('b_2semi_v1','C·S·S',['8','16','16'],{freq:'rec'}),
+      V('b_2semi_v2','S·S·C',['16','16','8'],{freq:'oca'}),
+    ]},
+
+  // grupo: Silencio semi (posiciones del silencio)
+  {id:'b_silenc1', name:'Silencio semi', block:'binario', ts:'2/4', pulses:1, def:true, freq:'oca',
+    repId:'b_silenc1_v1', vars:[
+      V('b_silenc1_v1','zS·S·S·S',['16r','16','16','16'],{freq:'oca'}),
+      V('b_silenc1_v2','S·zS·S·S',['16','16r','16','16'],{freq:'pun'}),
+      V('b_silenc1_v3','S·S·zS·S',['16','16','16r','16'],{freq:'pun'}),
+      V('b_silenc1_v4','S·S·S·zS',['16','16','16','16r'],{freq:'pun'}),
+    ]},
+
+  {id:'b_mix', name:'Combi mix (Cp·S)', block:'binario', ts:'2/4', pulses:1, def:true, freq:'oca', notes:['8d','16'], note:'corchea punt. + semi'},
+
+  // grupo: Síncopas binarias
+  {id:'b_sinc', name:'Síncopas binarias', block:'binario', ts:'2/4', pulses:2, def:true, freq:'oca',
+    repId:'b_sinc_v1', vars:[
+      V('b_sinc_v1','C·N·C',['8','q','8'],{freq:'oca'}),
+      V('b_sinc_v2','C·N·S·S',['8','q','16','16'],{freq:'oca'}),
+      V('b_sinc_v3','S·S·N·C',['16','16','q','8'],{freq:'oca'}),
+    ]},
+  {id:'b_sincBreve', name:'Síncopa breve (S·C·S)', block:'binario', ts:'2/4', pulses:1, def:true, freq:'oca', notes:['16','8','16']},
+
+  // tresillo de corcheas: tarjeta SOLA (no excluyente, puede repetirse)
+  {id:'b_tresC', name:'Tresillo de corcheas (3:2)', block:'binario', ts:'2/4', pulses:1, def:true, freq:'rec', notes:[{d:'8',t:1},{d:'8',t:1},{d:'8',t:1}], tuplet:{first:3,num:3,notes:2}},
+  // grupo: otros grupos de valoración especial (seisillo / tresillo fracción / cinquillo)
+  {id:'b_gve', name:'Otros grupos de valoración especial', block:'binario', ts:'2/4', pulses:1, def:true, freq:'oca',
+    repId:'b_gve_v2', vars:[
+      V('b_gve_v2','Seisillo de semis (6:4)',[{d:'16',t:1},{d:'16',t:1},{d:'16',t:1},{d:'16',t:1},{d:'16',t:1},{d:'16',t:1}],{freq:'oca', tuplet:{first:6,num:6,notes:4}, notTS:'3/4'}),
+      V('b_gve_v3','Tresillo de fracción (semis)',['8',{d:'16',t:1},{d:'16',t:1},{d:'16',t:1}],{freq:'oca', tuplet:{first:3,offset:1,num:3,notes:2}}),
+      V('b_gve_v4','Cinquillo (5:4) — OFF',[{d:'16',t:1},{d:'16',t:1},{d:'16',t:1},{d:'16',t:1},{d:'16',t:1}],{freq:'pun', tuplet:{first:5,num:5,notes:4}, off:true}),
+    ]},
+
+  // ================= BLANCAS (pulso = blanca = 8 semis) =================
+  {id:'w_blanca', name:'Blanca', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'bas', notes:['h']},
+  {id:'w_2negras', name:'2 negras', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'bas', notes:['q','q']},
+  {id:'w_ncc', name:'Negra + 2 corcheas', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'rec', notes:['q','8','8']},
+  {id:'w_ccn', name:'2 corcheas + negra', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'oca', notes:['8','8','q']},
+  {id:'w_4cor', name:'4 corcheas', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'rec', notes:['8','8','8','8']},
+  {id:'w_npuntC', name:'Negra con puntillo + corchea', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'rec', notes:['qd','8']},
+  {id:'w_cnc', name:'Corchea-negra-corchea', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'oca', notes:['8','q','8']},
+  {id:'w_silN', name:'Silencio de negra + negra', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'oca', notes:['qr','q']},
+
+  // grupo: Síncopas de blancas
+  {id:'w_sinc', name:'Síncopas (blancas)', block:'blancas', ts:'2/2', pulses:2, def:true, freq:'oca',
+    repId:'w_sinc_v1', vars:[
+      V('w_sinc_v1','N·B·N',['q','h','q'],{freq:'oca'}),
+      V('w_sinc_v2','N·B·2C',['q','h','8','8'],{freq:'oca'}),
+      V('w_sinc_v3','2C·N·B',['8','8','q','h'],{freq:'oca'}),
+      V('w_sinc_v4','2C·B·2C',['8','8','h','8','8'],{freq:'oca'}),
+    ]},
+
+  {id:'w_tresN', name:'Tresillo de negras (3:2)', block:'blancas', ts:'2/2', pulses:1, def:true, freq:'oca', notes:[{d:'q',t:1},{d:'q',t:1},{d:'q',t:1}], tuplet:{first:3,num:3,notes:2}},
+];
+
+const BLOCKS = [
+  {key:'compases', title:'Compases', sub:'Activa los compases que quieres que aparezcan en los ejercicios.'},
+  {key:'ternario', title:'S. ternario', sub:'6/8, 3/8 y 9/8 · pulso = negra con puntillo (mostradas en 3/8 = 1 pulso)'},
+  {key:'binario', title:'S. binario', sub:'2/4 y 3/4 · pulso = negra'},
+  {key:'blancas', title:'Pulso blanca', sub:'2/2, 3/2 y 4/2 · pulso = blanca'},
+];
+
+// === COMPASES ELEGIBLES ===
+// activos por defecto: los de siempre. Opcionales (desmarcados): 3/2, 4/2, 9/8.
+// agrupados por sección; el render hace una COLUMNA por sección, en este orden de filas.
+const METERS = [
+  // S. binario
+  {ts:'2/4', name:'2/4', sec:'binario',  def:true,  note:'2 pulsos (negra)'},
+  {ts:'3/4', name:'3/4', sec:'binario',  def:true,  note:'3 pulsos (negra)'},
+  {ts:'4/4', name:'4/4', sec:'binario',  def:false, note:'4 pulsos (negra)'},
+  // S. ternario
+  {ts:'3/8', name:'3/8', sec:'ternario', def:true,  note:'1 pulso (negra c. puntillo)'},
+  {ts:'6/8', name:'6/8', sec:'ternario', def:true,  note:'2 pulsos · ocupa 2 sistemas'},
+  {ts:'9/8', name:'9/8', sec:'ternario', def:false, note:'3 pulsos (negra c. puntillo)'},
+  // Pulso blanca
+  {ts:'2/2', name:'2/2', sec:'blancas',  def:true,  note:'2 pulsos (blanca)'},
+  {ts:'3/2', name:'3/2', sec:'blancas',  def:false, note:'3 pulsos (blanca)'},
+  {ts:'4/2', name:'4/2', sec:'blancas',  def:false, note:'4 pulsos (blanca)'},
+];
+const meterState = {};
+METERS.forEach(m=>{ meterState[m.ts]={on:m.def}; });
+// lista de compases activos (la lee el generador vía RS.catalog.enabledMeters)
+function enabledMeters(){ return METERS.filter(m=>meterState[m.ts].on).map(m=>m.ts); }
+
+function isGroup(c){ return Array.isArray(c.vars) && c.vars.length>0; }
+function repVar(c){ return c.vars.find(v=>v.id===c.repId) || c.vars[0]; }
+
+// estado por célula (on/off a nivel de tarjeta). La frecuencia/mal/quitar de variaciones
+// vive dentro de cada var. Para células simples se usa state[id].freq/mal/quitar.
+const state = {};
+CELLS.forEach(c=>{ state[c.id]={on:c.def, freq:c.freq, mal:false, quitar:false, open:false}; });
+let currentTab = 'compases';
+
+/* ---------- RENDER de una figura (reutilizable para tarjeta y variación) ---------- */
+function renderScore(host, ts, notes, tuplet, W, H){
+  W=W||420; H=H||164;
+  host.innerHTML='';
+  const renderer=new VF.Renderer(host, VF.Renderer.Backends.SVG);
+  renderer.resize(W,H);
+  const ctx=renderer.getContext();
+  ctx.scale(1.25,1.25);
+  const stave=new VF.Stave(2,10,(W/1.25)-8);
+  stave.addClef('treble').addTimeSignature(ts);
+  stave.setContext(ctx).draw();
+  const [numStr,denStr]=ts.split('/');
+  const num=parseInt(numStr,10), den=parseInt(denStr,10);
+  let vfnotes=[];
+  notes.forEach((f)=>{
+    const raw=(typeof f==='object')?f.d:f;
+    const dur=raw.replace('d','').replace('r','');
+    const dot=raw.includes('d'); const rest=raw.includes('r');
+    const sn=new VF.StaveNote({keys:['b/4'], duration:dur+(rest?'r':''), clef:'treble', stem_direction:1});
+    if(dot && !rest) sn.addModifier(new VF.Dot(),0);
+    vfnotes.push(sn);
+  });
+  let tupletGroups=[];
+  if(tuplet){
+    const off=tuplet.offset||0;
+    const slice=vfnotes.slice(off, off+tuplet.first);
+    tupletGroups.push(new VF.Tuplet(slice,{num_notes:tuplet.num, notes_occupied:tuplet.notes, bracketed:true, ratioed:false}));
+  }
+  const voice=new VF.Voice({num_beats:num, beat_value:den}).setMode(VF.Voice.Mode.SOFT);
+  voice.addTickables(vfnotes);
+  const PULSE_SEMIS = {'3/8':6,'6/8':6,'2/4':4,'3/4':4,'2/2':8,'3/2':8};
+  const pulse = PULSE_SEMIS[ts] || 4;
+  const DURS = {'16':1,'8':2,'8d':3,'q':4,'qd':6,'h':8,'hd':12};
+  const tupIdx = new Set();
+  if(tuplet){ const off=tuplet.offset||0; for(let i=off;i<off+tuplet.first;i++) tupIdx.add(i); }
+  let beams=[]; let cur=[]; let pos=0; let curPulse=0;
+  const flushBeam=()=>{
+    while(cur.length && cur[0].rest) cur.shift();
+    while(cur.length && cur[cur.length-1].rest) cur.pop();
+    const real=cur.filter(o=>!o.rest);
+    if(real.length>=2){ beams.push(new VF.Beam(real.map(o=>vfnotes[o.i]))); }
+    cur=[];
+  };
+  notes.forEach((f,i)=>{
+    const raw=(typeof f==='object')?f.d:f;
+    const base=raw.replace('r','');
+    const d=DURS[base]||1;
+    const isRest=raw.includes('r');
+    const thisPulse=Math.floor(pos/pulse);
+    if(thisPulse!==curPulse && !tupIdx.has(i)){ flushBeam(); curPulse=thisPulse; }
+    const beamable=(base==='8'||base==='16'||base==='8d');
+    if(beamable){ cur.push({i, rest:isRest}); }
+    else { flushBeam(); }
+    pos+=d;
+  });
+  flushBeam();
+  new VF.Formatter().joinVoices([voice]).format([voice], (W/1.25)-110);
+  voice.draw(ctx,stave);
+  try{ beams.forEach(b=>b.setContext(ctx).draw()); }catch(e){}
+  try{ tupletGroups.forEach(t=>t.setContext(ctx).draw()); }catch(e){}
+}
+
+/* ---------- parseo de notas desde texto (para el editor) ---------- */
+// Acepta tokens separados por espacios o · : 16 8 q h, sufijo d (puntillo), r (silencio).
+// Ej: "16r 16 16 16"  /  "8 q 8"
+function parseNotes(str){
+  const toks=str.trim().split(/[\s·]+/).filter(Boolean);
+  const ok=/^(16|8|q|h)d?r?$/;
+  if(!toks.every(t=>ok.test(t))) return null;
+  return toks;
+}
+function notesToStr(notes){
+  return notes.map(f=>(typeof f==='object')?f.d:f).join(' ');
+}
+
+/* ---------- freq buttons (4 niveles) ---------- */
+function freqButtons(getF, setF){
+  const wrap=document.createElement('div'); wrap.className='freq';
+  FREQ_ORDER.forEach(val=>{
+    const b=document.createElement('button');
+    b.textContent=FREQ_LABEL[val]; b.dataset.val=val;
+    if(getF()===val) b.className='sel '+val;
+    b.onclick=()=>{ setF(val); build(); };
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
+
+/* ---------- tabs ---------- */
+function buildTabs(){
+  const t=document.getElementById('tabs'); t.innerHTML='';
+  BLOCKS.forEach(b=>{
+    const btn=document.createElement('button');
+    btn.textContent=b.title; btn.className=(b.key===currentTab?'active':'');
+    btn.onclick=()=>{ currentTab=b.key; build(); };
+    t.appendChild(btn);
+  });
+}
+
+/* ---------- una variación dentro del desplegable ---------- */
+function renderVarItem(c, v){
+  const it=document.createElement('div');
+  it.className='varitem'+(v.id===c.repId?' isrep':'')+(v.on?'':' voff');
+  // cabecera: toggle on/off + estrella representativa + nombre editable + badge
+  const head=document.createElement('div'); head.className='varhead';
+  const tog=document.createElement('label'); tog.className='toggle vtoggle';
+  const tinp=document.createElement('input'); tinp.type='checkbox'; tinp.checked=v.on;
+  tinp.onchange=()=>{ v.on=tinp.checked; build(); };
+  const trk=document.createElement('span'); trk.className='track';
+  const knb=document.createElement('span'); knb.className='knob';
+  tog.appendChild(tinp); tog.appendChild(trk); tog.appendChild(knb);
+  const star=document.createElement('button'); star.className='star'+(v.id===c.repId?' on':'');
+  star.textContent='★'; star.title='Marcar como representativa';
+  star.onclick=()=>{ c.repId=v.id; build(); };
+  const nameInp=document.createElement('input'); nameInp.className='vname-edit'; nameInp.value=v.name;
+  nameInp.onchange=()=>{ v.name=nameInp.value; };
+  head.appendChild(tog); head.appendChild(star); head.appendChild(nameInp);
+  if(v.id===c.repId){ const rb=document.createElement('span'); rb.className='repbadge'; rb.textContent='representativa'; head.appendChild(rb); }
+  it.appendChild(head);
+  // partitura mini
+  const ms=document.createElement('div'); ms.className='miniscore';
+  it.appendChild(ms);
+  setTimeout(()=>{ try{ renderScore(ms, c.ts, v.notes, v.tuplet, 360, 130); }catch(e){ ms.textContent='(no se pudo dibujar)'; } },0);
+  // frecuencia de la variación (4 niveles)
+  it.appendChild(freqButtons(()=>v.freq, val=>{ v.freq=val; }));
+  // controles: validar/mal, quitar, editar notas, borrar variación
+  const ctl=document.createElement('div'); ctl.className='varctl';
+  const bMal=document.createElement('button'); bMal.className='vedit'+(v.mal?' ':''); bMal.textContent=v.mal?'✗ marcada MAL':'✗ Está mal';
+  if(v.mal) bMal.style.cssText='color:#fff;background:#c0392b;border-color:#c0392b;';
+  bMal.onclick=()=>{ v.mal=!v.mal; build(); };
+  const bQ=document.createElement('button'); bQ.className='vedit'; bQ.textContent=v.quitar?'🗑 marcada QUITAR':'🗑 Quitar';
+  if(v.quitar) bQ.style.cssText='color:#fff;background:#8a6d1f;border-color:#8a6d1f;';
+  bQ.onclick=()=>{ v.quitar=!v.quitar; build(); };
+  const bEdit=document.createElement('button'); bEdit.className='vedit'; bEdit.textContent='✎ Editar notas';
+  bEdit.onclick=()=>{ openInlineEdit(it, c, v); };
+  const bDel=document.createElement('button'); bDel.className='vdel'; bDel.textContent='✕ Borrar variación';
+  bDel.onclick=()=>{
+    if(c.vars.length<=1){ alert('Un grupo necesita al menos una variación.'); return; }
+    c.vars=c.vars.filter(x=>x.id!==v.id);
+    if(c.repId===v.id) c.repId=c.vars[0].id;
+    build();
+  };
+  ctl.appendChild(bMal); ctl.appendChild(bQ); ctl.appendChild(bEdit); ctl.appendChild(bDel);
+  it.appendChild(ctl);
+  return it;
+}
+
+/* editor inline de notas de una variación */
+function openInlineEdit(container, c, v){
+  if(container.querySelector('.vaddrow.editing')) return;
+  const row=document.createElement('div'); row.className='vaddrow editing';
+  const inp=document.createElement('input'); inp.value=notesToStr(v.notes);
+  inp.placeholder='ej: 16r 16 16 16';
+  const save=document.createElement('button'); save.textContent='Guardar';
+  const cancel=document.createElement('button'); cancel.textContent='Cancelar';
+  const hint=document.createElement('span'); hint.className='hint-mono'; hint.textContent='tokens: 16 8 q h · +d puntillo · +r silencio';
+  save.onclick=()=>{
+    const parsed=parseNotes(inp.value);
+    if(!parsed){ inp.style.borderColor='#e08'; hint.textContent='✗ tokens inválidos. Usa: 16 8 q h (+d,+r)'; return; }
+    // los tuplets no se editan por texto aquí (se conservan)
+    if(v.tuplet){ hint.textContent='✗ esta variación es un tresillo/grupo especial; edítalo en código.'; return; }
+    v.notes=parsed; build();
+  };
+  cancel.onclick=()=>{ row.remove(); };
+  row.appendChild(inp); row.appendChild(save); row.appendChild(cancel); row.appendChild(hint);
+  container.appendChild(row);
+  inp.focus();
+}
+
+/* añadir nueva variación a un grupo */
+function addVarRow(c){
+  const row=document.createElement('div'); row.className='vaddrow';
+  const nameInp=document.createElement('input'); nameInp.placeholder='nombre (ej: S·C·S·C)'; nameInp.style.flex='0 0 180px'; nameInp.style.minWidth='120px';
+  const notesInp=document.createElement('input'); notesInp.placeholder='notas (ej: 16 8 16 8)';
+  const add=document.createElement('button'); add.textContent='+ Añadir variación';
+  const hint=document.createElement('span'); hint.className='hint-mono'; hint.textContent='';
+  add.onclick=()=>{
+    const parsed=parseNotes(notesInp.value);
+    if(!parsed){ notesInp.style.borderColor='#e08'; hint.textContent='✗ notas inválidas'; return; }
+    const nm=nameInp.value.trim()||('var '+(c.vars.length+1));
+    const nid=c.id+'_v'+(Date.now().toString(36));
+    c.vars.push(V(nid, nm, parsed, {freq:'pun'}));
+    build();
+  };
+  row.appendChild(nameInp); row.appendChild(notesInp); row.appendChild(add); row.appendChild(hint);
+  return row;
+}
+
+/* convertir célula simple en grupo (añadiéndole una 2ª variación) */
+function convertToGroup(c){
+  const v1=V(c.id+'_v1','(original)', c.notes, {freq:state[c.id].freq, tuplet:c.tuplet});
+  c.vars=[v1]; c.repId=v1.id;
+  delete c.notes; delete c.tuplet;
+  build();
+}
+
+/* ---------- tarjeta ---------- */
+// render de la pestaña "Compases": una tarjeta por métrica con su interruptor
+function buildMetersList(list){
+  const cols=[
+    {sec:'binario',  title:'S. binario'},
+    {sec:'ternario', title:'S. ternario'},
+    {sec:'blancas',  title:'Pulso blanca'},
+  ];
+  const grid=document.createElement('div'); grid.className='meters-grid';
+  cols.forEach(col=>{
+    const colEl=document.createElement('div'); colEl.className='meters-col';
+    const h=document.createElement('div'); h.className='meters-colhead'; h.textContent=col.title;
+    colEl.appendChild(h);
+    METERS.filter(m=>m.sec===col.sec).forEach(m=>{
+      const st=meterState[m.ts];
+      const card=document.createElement('div'); card.className='cell meter-card '+(st.on?'on':'off');
+      const row1=document.createElement('div'); row1.className='row1';
+      const name=document.createElement('div'); name.className='name meter-name';
+      name.innerHTML='<b>'+m.name+'</b>';
+      const tog=document.createElement('label'); tog.className='toggle';
+      const inp=document.createElement('input'); inp.type='checkbox'; inp.checked=st.on;
+      inp.onchange=()=>{ st.on=inp.checked; build(); if(window.RS&&window.RS.onCatalogChange) window.RS.onCatalogChange(); };
+      const track=document.createElement('span'); track.className='track';
+      const knob=document.createElement('span'); knob.className='knob';
+      tog.appendChild(inp); tog.appendChild(track); tog.appendChild(knob);
+      row1.appendChild(name); row1.appendChild(tog);
+      card.appendChild(row1);
+      colEl.appendChild(card);
+    });
+    grid.appendChild(colEl);
+  });
+  list.appendChild(grid);
+}
+
+function build(){
+  buildTabs();
+  const blk=BLOCKS.find(b=>b.key===currentTab);
+  document.getElementById('tabhint').textContent=blk.sub;
+  const list=document.getElementById('list'); list.innerHTML='';
+  // la leyenda de frecuencias y el botón Exportar solo aplican a las células, no a Compases
+  const isCompases = currentTab==='compases';
+  const leg=document.getElementById('cellLegend'); if(leg) leg.style.display=isCompases?'none':'';
+  const bar=document.getElementById('cellBar'); if(bar) bar.style.display=isCompases?'none':'';
+  if(isCompases){ buildMetersList(list); return; }
+  CELLS.filter(c=>c.block===currentTab).forEach(c=>{
+    const st=state[c.id];
+    const grp=isGroup(c);
+    const card=document.createElement('div'); card.className='cell '+(st.on?'on':'off');
+    // fila 1
+    const row1=document.createElement('div'); row1.className='row1';
+    const name=document.createElement('div'); name.className='name'; name.textContent=c.name;
+    if(grp){
+      const bv=document.createElement('span'); bv.className='vartoggle';
+      bv.textContent=(st.open?'▾ ':'✦ ')+'variaciones ('+c.vars.length+')';
+      bv.onclick=()=>{ st.open=!st.open; build(); };
+      name.appendChild(document.createTextNode(' '));
+      name.appendChild(bv);
+    }
+    const pul=document.createElement('div'); pul.className='pulses'; pul.textContent=c.pulses+(c.pulses===1?' pulso':' pulsos');
+    const tog=document.createElement('label'); tog.className='toggle';
+    const inp=document.createElement('input'); inp.type='checkbox'; inp.checked=st.on;
+    inp.onchange=()=>{ st.on=inp.checked; build(); };
+    const track=document.createElement('span'); track.className='track';
+    const knob=document.createElement('span'); knob.className='knob';
+    tog.appendChild(inp); tog.appendChild(track); tog.appendChild(knob);
+    row1.appendChild(name); row1.appendChild(pul); row1.appendChild(tog);
+    card.appendChild(row1);
+    // partitura: representativa si grupo, si no la propia
+    const score=document.createElement('div'); score.className='score';
+    card.appendChild(score);
+    const dispNotes = grp ? repVar(c).notes : c.notes;
+    const dispTup = grp ? repVar(c).tuplet : c.tuplet;
+    setTimeout(()=>{ try{ renderScore(score, c.ts, dispNotes, dispTup); }catch(e){ score.textContent='(no se pudo dibujar)'; } },0);
+
+    if(!grp){
+      // frecuencia + feedback de célula simple
+      card.appendChild(freqButtons(()=>st.freq, val=>{ st.freq=val; }));
+      const fb=document.createElement('div'); fb.className='fb';
+      const bMal=document.createElement('button'); bMal.className='mal'+(st.mal?' sel':''); bMal.textContent='✗ Está mal';
+      bMal.onclick=()=>{ st.mal=!st.mal; build(); };
+      const bQuit=document.createElement('button'); bQuit.className='quitar'+(st.quitar?' sel':''); bQuit.textContent='🗑 Quitar del catálogo';
+      bQuit.onclick=()=>{ st.quitar=!st.quitar; build(); };
+      fb.appendChild(bMal); fb.appendChild(bQuit);
+      card.appendChild(fb);
+      // opción: convertir en grupo
+      const conv=document.createElement('div'); conv.className='vaddrow';
+      const cb=document.createElement('button'); cb.textContent='✦ Convertir en grupo de variaciones';
+      cb.onclick=()=>convertToGroup(c);
+      conv.appendChild(cb);
+      card.appendChild(conv);
+    } else if(st.open){
+      // desplegable de variaciones
+      const wrap=document.createElement('div'); wrap.className='varwrap';
+      // editar nombre del grupo
+      const gnrow=document.createElement('div'); gnrow.className='vaddrow';
+      const gl=document.createElement('span'); gl.className='hint-mono'; gl.textContent='Nombre del grupo:';
+      const gi=document.createElement('input'); gi.className='grpname-edit'; gi.value=c.name; gi.style.flex='0 0 200px';
+      gi.onchange=()=>{ c.name=gi.value; build(); };
+      gnrow.appendChild(gl); gnrow.appendChild(gi);
+      wrap.appendChild(gnrow);
+      c.vars.forEach(v=>{ wrap.appendChild(renderVarItem(c,v)); });
+      wrap.appendChild(addVarRow(c));
+      card.appendChild(wrap);
+    }
+    list.appendChild(card);
+  });
+  updateCount();
+}
+
+function updateCount(){
+  const on=Object.values(state).filter(s=>s.on).length;
+  document.getElementById('count').textContent=on+' de '+CELLS.length+' tarjetas activadas';
+}
+function setAllOn(v){ CELLS.filter(c=>c.block===currentTab).forEach(c=>state[c.id].on=v); build(); }
+function setDefaults(){
+  location.reload();
+}
+
+/* ---------- export ---------- */
+function exportSel(){
+  let lines=['# Selección de células — simuladoraccesoritmo (v3, modelo unificado)',
+             '# Niveles: Básico > Recurrente > Ocasional > Puntual',
+             '# [x]=tarjeta activada · ✦=grupo de variaciones · ★=representativa',''];
+  BLOCKS.forEach(b=>{
+    lines.push('## '+b.title+' ('+b.sub+')');
+    CELLS.filter(c=>c.block===b.key).forEach(c=>{
+      const st=state[c.id];
+      const onmark=st.on?'[x] ':'[ ] ';
+      if(isGroup(c)){
+        lines.push(onmark+'✦ '+c.name+'  ('+c.pulses+'p) — grupo de '+c.vars.length+' variaciones:');
+        c.vars.forEach(v=>{
+          const rep=(v.id===c.repId)?'★ ':'  ';
+          const onm=v.on?'[x] ':'[ ] ';
+          let extra='';
+          if(v.mal) extra+='  ⟵ MAL';
+          if(v.quitar) extra+='  ⟵ QUITAR';
+          lines.push('      '+onm+rep+v.name+'  ['+notesToStr(v.notes)+']  — '+FREQ_LABEL[v.freq]+extra);
+        });
+      } else {
+        let extra='';
+        if(st.mal) extra+='  ⟵ MAL';
+        if(st.quitar) extra+='  ⟵ QUITAR';
+        lines.push(onmark+c.name+'  ('+c.pulses+'p) — '+FREQ_LABEL[st.freq]+extra);
+      }
+    });
+    lines.push('');
+  });
+  // resumen feedback (recorre simples y variaciones)
+  const mals=[], quits=[];
+  CELLS.forEach(c=>{
+    if(isGroup(c)){ c.vars.forEach(v=>{ if(v.mal) mals.push(c.name+'/'+v.name); if(v.quitar) quits.push(c.name+'/'+v.name); }); }
+    else { const st=state[c.id]; if(st.mal) mals.push(c.name); if(st.quitar) quits.push(c.name); }
+  });
+  lines.push('## FEEDBACK');
+  lines.push('MAL ('+mals.length+'): '+(mals.join(' · ')||'—'));
+  lines.push('QUITAR ('+quits.length+'): '+(quits.join(' · ')||'—'));
+  document.getElementById('outtext').value=lines.join('\n');
+  document.getElementById('out').style.display='flex';
+}
+function copyOut(){ const t=document.getElementById('outtext'); t.select(); document.execCommand('copy'); }
+
+build();
+
+
+/* ---- PUENTE: exponer estado del catálogo al generador ---- */
+function buildPool(){
+  // aplanar: cada variación/célula ACTIVA -> candidata con su freq y grupo
+  const pool=[];
+  CELLS.forEach(c=>{
+    const st=state[c.id];
+    if(!st.on) return;            // tarjeta apagada -> nada
+    if(isGroup(c)){
+      c.vars.forEach(v=>{
+        if(!v.on || v.quitar) return;
+        pool.push({ id:v.id, name:c.name+' / '+v.name, sec:c.block, ts:c.ts,
+          onlyTS:v.onlyTS||c.onlyTS||null, notTS:v.notTS||c.notTS||null,
+          pulses:c.pulses, freq:v.freq, group:c.id, notes:v.notes, tuplet:v.tuplet||null });
+      });
+    } else {
+      if(st.quitar) return;
+      pool.push({ id:c.id, name:c.name, sec:c.block, ts:c.ts,
+        onlyTS:c.onlyTS||null, notTS:c.notTS||null,
+        pulses:c.pulses, freq:st.freq, group:null, notes:c.notes, tuplet:c.tuplet||null });
+    }
+  });
+  return pool;
+}
+// hook: cada vez que el catálogo se reconstruye, avisa al generador
+const _origBuild = build;
+build = function(){ _origBuild(); if(window.RS && window.RS.onCatalogChange) window.RS.onCatalogChange(); };
+window.RS = window.RS || {};
+window.RS.catalog = { buildPool, CELLS, state, enabledMeters, meterState, METERS };
+// exponer funciones de onclick inline (con prefijo cat para no colisionar con el simulador)
+window.cat_exportSel=exportSel; window.cat_copyOut=copyOut;
+
+})();
+</script>
+
+<!-- módulo generador (encapsulado) -->
+<script>
+(function(){
+
+/* VF global */
+
+/* ============================================================
+   CATÁLOGO DE CÉLULAS (con estado de Iago 2026-06-13 v2)
+   notes: figuras planas; dur: 16/8/8d/q/qd/h/hd + r(silencio); tuplet opcional.
+   pulses: duración real en pulsos. freq: rec/oca/pun. group/variantFam: exclusión.
+   ============================================================ */
+const PULSE_FIG = { '3/8':'qd','6/8':'qd','9/8':'qd','2/4':'q','3/4':'q','4/4':'q','4/2':'h','2/2':'h','3/2':'h' };
+const SECTION_OF = { '6/8':'ternario','3/8':'ternario','9/8':'ternario','2/4':'binario','3/4':'binario','4/4':'binario','2/2':'blancas','3/2':'blancas','4/2':'blancas' };
+
+// familias de variantes: cada una con su lista de patrones (figuras) que suman el pulso
+const CELLS = [
+  // ---------- TERNARIO (pulso = 6 semis) ----------
+  {id:'t_3cor', sec:'ternario', freq:'rec', on:true, group:null, fam:null, variants:[['8','8','8']]},
+  {id:'t_ncorch', sec:'ternario', freq:'rec', on:true, group:'negra_corchea', fam:null, variants:[['q','8']]},
+  {id:'t_corchn', sec:'ternario', freq:'oca', on:true, group:'negra_corchea', fam:null, variants:[['8','q']]},
+  {id:'t_npunt', sec:'ternario', freq:'rec', on:true, group:null, fam:null, variants:[['qd']]},
+  {id:'t_6semi', sec:'ternario', freq:'rec', on:true, group:null, fam:null, variants:[['16','16','16','16','16','16']]},
+  {id:'t_2semiA', sec:'ternario', freq:'oca', on:true, group:'semis_corcheas', fam:'t_2semiA',
+    variants:[['8','8','16','16'],['8','16','16','8'],['16','16','8','8'],['16','16','8','16','16']]},
+  {id:'t_2semiCC', sec:'ternario', freq:'oca', on:true, group:'semis_corcheas', fam:null, variants:[['16','16','8','8']]},
+  {id:'t_2semiB', sec:'ternario', freq:'pun', on:true, group:null, fam:'t_2semiB',
+    variants:[['16','16','q'],['q','16','16'],['8','8r','16','16']]},
+  {id:'t_4semi', sec:'ternario', freq:'pun', on:true, group:'semis_corcheas', fam:null, variants:[['16','16','16','16','8']]},
+  {id:'t_4semiB', sec:'ternario', freq:'oca', on:true, group:'semis_corcheas', fam:null, variants:[['8','16','16','16','16']]},
+  {id:'t_4semiC', sec:'ternario', freq:'pun', on:true, group:'semis_corcheas', fam:null, variants:[['16','16','8','16','16']]},
+  {id:'t_4semiD', sec:'ternario', freq:'pun', on:true, group:'semis_corcheas', fam:null, variants:[['16','16','16','8','16']]},
+  {id:'t_falsoNDP', sec:'ternario', freq:'pun', on:false, group:null, fam:null, variants:[['16','8d','8']]},
+  {id:'t_sincDoble', sec:'ternario', freq:'pun', on:true, group:'semis_corcheas', fam:null, variants:[['16','8','8','16']]},
+  {id:'t_bonus1', sec:'ternario', freq:'pun', on:false, group:'bonus', fam:null, variants:[['8','16','8','16']]},
+  {id:'t_bonus2', sec:'ternario', freq:'pun', on:false, group:'bonus', fam:null, variants:[['16','8','16','8']]},
+  {id:'t_3semi', sec:'ternario', freq:'pun', on:true, group:null, fam:null, variants:[['8d','16','16','16']]},
+  {id:'t_ndp', sec:'ternario', freq:'oca', on:true, group:null, fam:null, variants:[['8d','16','8']]},
+  {id:'t_silS', sec:'ternario', freq:'pun', on:true, group:null, fam:'t_silS',
+    variants:[['16r','16','16','16','16','16'],['16','16','16','16','16','16r'],['16','16','16r','16','16','16']]},
+  {id:'t_dosillo', sec:'ternario', freq:'oca', on:true, group:'gve', fam:null, variants:[['8','8']], tuplet:{num:2,notes:3}},
+  {id:'t_cuatrillo', sec:'ternario', freq:'oca', on:true, group:'gve', fam:null, variants:[['16','16','16','16']], tuplet:{num:4,notes:6}},
+
+  // ---------- BINARIO (pulso = 4 semis) ----------
+  {id:'b_negra', sec:'binario', freq:'rec', on:true, group:null, fam:null, variants:[['q']]},
+  {id:'b_2cor', sec:'binario', freq:'rec', on:true, group:null, fam:null, variants:[['8','8']]},
+  {id:'b_npuntC', sec:'binario', freq:'rec', on:true, group:null, fam:null, pulses:2, variants:[['qd','8']]},
+  {id:'b_4semi', sec:'binario', freq:'rec', on:true, group:null, fam:null, variants:[['16','16','16','16']]},
+  {id:'b_2semiA', sec:'binario', freq:'rec', on:true, group:null, fam:'b_2semi', variants:[['8','16','16']]},
+  {id:'b_2semiB', sec:'binario', freq:'oca', on:true, group:null, fam:'b_2semi', variants:[['16','16','8']]},
+  {id:'b_silenc1', sec:'binario', freq:'oca', on:true, group:null, fam:null, variants:[['16r','16','16','16']]},
+  {id:'b_mix', sec:'binario', freq:'oca', on:true, group:null, fam:null, variants:[['8d','16']]},
+  {id:'b_sinc', sec:'binario', freq:'oca', on:true, group:null, fam:null, pulses:2, variants:[['8','q','8']]},
+  {id:'b_tresC', sec:'binario', freq:'oca', on:true, group:null, fam:null, variants:[['8','8','8']], tuplet:{num:3,notes:2}},
+  {id:'b_tresFrac', sec:'binario', freq:'pun', on:false, group:null, fam:null, variants:[['16','16','16']], tuplet:{num:3,notes:2,frac:true}},
+  {id:'b_seisillo', sec:'binario', freq:'oca', on:true, group:null, fam:null, variants:[['16','16','16','16','16','16']], tuplet:{num:6,notes:4}},
+  {id:'b_cinquillo', sec:'binario', freq:'pun', on:false, group:null, fam:null, variants:[['16','16','16','16','16']], tuplet:{num:5,notes:4}},
+
+  // ---------- BLANCAS (pulso = blanca = 8 semis) ----------
+  {id:'w_blanca', sec:'blancas', freq:'rec', on:true, group:null, fam:null, variants:[['h']]},
+  {id:'w_2negras', sec:'blancas', freq:'rec', on:true, group:null, fam:null, variants:[['q','q']]},
+  {id:'w_ncc', sec:'blancas', freq:'rec', on:true, group:null, fam:null, variants:[['q','8','8']]},
+  {id:'w_ccn', sec:'blancas', freq:'oca', on:true, group:null, fam:null, variants:[['8','8','q']]},
+  {id:'w_4cor', sec:'blancas', freq:'rec', on:true, group:null, fam:null, variants:[['8','8','8','8']]},
+  {id:'w_npuntC', sec:'blancas', freq:'rec', on:true, group:null, fam:null, variants:[['qd','8']]},
+  {id:'w_cnc', sec:'blancas', freq:'oca', on:true, group:null, fam:null, variants:[['8','q','8']]},
+  {id:'w_silN', sec:'blancas', freq:'oca', on:true, group:null, fam:null, variants:[['qr','q']]},
+  {id:'w_sinc', sec:'blancas', freq:'oca', on:true, group:null, fam:null, pulses:2, variants:[['q','h','q']]},
+  {id:'w_tresN', sec:'blancas', freq:'oca', on:true, group:null, fam:null, variants:[['q','q','q']], tuplet:{num:3,notes:2}},
+];
+
+// figura de "pulso" por sección (para regla post-puntual)
+const PULSE_CELL = { ternario:'t_npunt', binario:'b_negra', blancas:'w_blanca' };
+
+/* ============================================================
+   RNG con semilla
+   ============================================================ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+let RNG=Math.random;
+function pick(arr){return arr[Math.floor(RNG()*arr.length)];}
+function shuffle(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(RNG()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ============================================================
+   DURACIONES (en semicorcheas) y utilidades de cuadratura
+   ============================================================ */
+const DURS={'16':1,'8':2,'8d':3,'q':4,'qd':6,'h':8,'hd':12};
+function cellPulses(cell){
+  if(cell.pulses) return cell.pulses;
+  return 1; // por defecto 1 pulso
+}
+
+/* ============================================================
+   GENERADOR DE ESTRUCTURA DE SISTEMAS
+   - 5 sistemas. 6/8 ocupa 2 consecutivos.
+   - otros 3: 3 de {3/8,2/4,3/4, una de (2/2|3/2)} sin repetir.
+   - clave de fa en primer o último sistema, solo binario/blancas.
+   - no repetir sección en sistemas seguidos (excepto el bloque 6/8).
+   ============================================================ */
+function buildStructure(){
+  // compases activos según el catálogo (pestaña Compases). Fallback a los de siempre.
+  let enabled = (window.RS && window.RS.catalog && window.RS.catalog.enabledMeters)
+    ? window.RS.catalog.enabledMeters() : ['3/8','6/8','2/4','3/4','2/2'];
+  if(!enabled.length) enabled = ['3/8','6/8','2/4','3/4','2/2'];
+  const has = ts => enabled.includes(ts);
+
+  // la métrica de "pulso blanca" elegida para este ejercicio (una de las activas de esa sección)
+  const whites = enabled.filter(ts=>SECTION_OF[ts]==='blancas');
+  const whiteTS = whites.length? pick(whites) : null;
+
+  // candidatas no-6/8: todos los compases activos que no sean 6/8, pero de blancas solo UNA por ejercicio
+  let poolTS = enabled.filter(ts=>ts!=='6/8' && SECTION_OF[ts]!=='blancas');
+  if(whiteTS) poolTS.push(whiteTS);
+
+  const useSixBlock = has('6/8');   // si 6/8 está activo, ocupa 2 sistemas
+
+  for(let tries=0; tries<600; tries++){
+    const sys=[null,null,null,null,null];
+    let sixPos=-1;
+    if(useSixBlock){
+      sixPos = Math.floor(RNG()*4);          // bloque 6/8 en (sixPos, sixPos+1)
+      sys[sixPos]='6/8'; sys[sixPos+1]='6/8';
+    }
+    const freeSlots=[0,1,2,3,4].filter(s=>sys[s]===null);
+    // rellenar slots libres con candidatas barajadas (puede repetir si hay pocas, evitando seguidas)
+    const cand=shuffle(poolTS.slice());
+    let ci=0;
+    freeSlots.forEach(slot=>{ sys[slot]= cand.length? cand[ci++ % cand.length] : '2/4'; });
+    // clave de fa: slot 0 o 4, debe ser binario/blancas (no ternario)
+    const faSlot = (RNG()<0.5)?0:4;
+    const faTS=sys[faSlot];
+    if(SECTION_OF[faTS]==='ternario') continue; // fa solo binario/blancas
+    // validaciones de transición
+    let ok=true;
+    for(let s=0;s<4;s++){
+      const a=sys[s], b=sys[s+1];
+      const inSixBlock = (s===sixPos);
+      if(!inSixBlock && SECTION_OF[a]===SECTION_OF[b]){ ok=false; break; } // no repetir sección seguida
+      const isBruto = (x,y)=> (x==='3/8' && SECTION_OF[y]==='blancas');     // 3/8 <-> blancas, brusco
+      if(isBruto(a,b) || isBruto(b,a)){ ok=false; break; }
+    }
+    if(!ok) continue;
+    return {systems:sys, faSlot, sixPos, whiteTS};
+  }
+  // fallback simple (siempre válido)
+  return {systems:['2/4','6/8','6/8','3/4','2/2'], faSlot:0, sixPos:1, whiteTS:'2/2'};
+}
+
+/* ============================================================
+   SELECCIÓN DE CÉLULAS POR SISTEMA
+   - exclusión por grupo y por familia
+   - frecuencias: rec sin límite; oca exactamente 2/sistema; pun 1/sistema
+   - tras puntual -> figura de pulso ; tras ocasional -> recurrente
+   - rellena los pulsos del sistema (4 compases × pulsos-por-compás)
+   ============================================================ */
+function pulsesPerMeasure(ts){
+  const [n,d]=ts.split('/').map(Number);
+  if(ts==='6/8') return 2;
+  if(ts==='9/8') return 3;   // ternario de subdivisión ternaria: 3 pulsos de negra con puntillo
+  if(ts==='3/8') return 1;
+  if(d===4) return n;      // 2/4->2, 3/4->3
+  if(d===2) return n;      // 2/2->2, 3/2->3, 4/2->4
+  return n;
+}
+// === FASE B: el generador consume el catálogo EN VIVO ===
+// Lee RS.catalog.buildPool() y mapea cada candidata al formato que el motor espera:
+//   { id, sec, freq, on:true, group, fam:null, pulses, variants:[notes], tuplet }
+// Si el catálogo no está disponible (carga aislada), cae al CELLS interno antiguo.
+function getCatalogPool(){
+  if(window.RS && window.RS.catalog && typeof window.RS.catalog.buildPool==='function'){
+    try{
+      return window.RS.catalog.buildPool().map(p=>({
+        id:p.id, sec:p.sec, ts:p.ts, onlyTS:p.onlyTS||null, notTS:p.notTS||null, freq:p.freq, on:true,
+        group:p.group, fam:null, pulses:p.pulses,
+        variants:[p.notes], tuplet:p.tuplet||null
+      }));
+    }catch(e){ /* fallback abajo */ }
+  }
+  return CELLS.filter(c=>c.on);
+}
+// devuelve las células de la sección que pueden usarse en ESTE compás (ts).
+// Las que tienen onlyTS solo aparecen en ese compás concreto (ej. blanca solo en 3/4).
+function cellsForSection(sec, ts){
+  return getCatalogPool().filter(c=> c.sec===sec && (!c.onlyTS || c.onlyTS===ts) && (!c.notTS || c.notTS!==ts));
+}
+// básicos disponibles de una sección (nivel 'bas'), según el catálogo en vivo
+function basicCells(pool){ return pool.filter(c=>c.freq==='bas'); }
+
+// lista cerrada de células fáciles para el PRIMER pulso del sistema
+const FIRST_PULSE = {
+  ternario:['t_3cor','t_ncorch','t_npunt'],
+  binario:['b_2cor','b_negra','b_4semi'],
+  blancas:['w_blanca','w_2negras'],
+};
+// última figura del sistema: fácil y relajada
+const EASY_END = {
+  ternario:['t_npunt','t_3cor','t_ncorch'],
+  binario:['b_negra','b_2cor'],
+  blancas:['w_blanca','w_2negras'],
+};
+
+// figura de pulso (célula sencilla de 1 pulso) por sección
+function pulseFigCell(pool, sec){
+  const id=PULSE_CELL[sec];
+  return pool.find(c=>c.id===id) || pool.find(c=>(c.freq==='bas'||c.freq==='rec') && cellPulses(c)===1);
+}
+// célula de silencio según sección. pulses=2 para el silencio de blanca (cierre de 3/4).
+function makeRestCell(sec, pulses){
+  if(pulses===2){
+    // silencio de blanca (2 pulsos de negra) — usado en el cierre de 3/4
+    return {id:'rest2_'+sec, sec, freq:'rec', on:true, group:null, fam:null, isPulseFig:false, pulses:2, variants:[['hr']]};
+  }
+  // silencio único que ocupa 1 pulso, con la figura más grande posible
+  const map={ternario:['qdr'], binario:['qr'], blancas:['hr']};
+  return {id:'rest_'+sec, sec, freq:'rec', on:true, group:null, fam:null, isPulseFig:false, variants:[map[sec]]};
+}
+
+// genera la secuencia de un SISTEMA, compás a compás, sin cruzar barras
+function fillSystem(ts, opts){
+  opts=opts||{};
+  const easy=!!opts.easy;              // sistema en clave de fa: más fácil
+  const nMeasures=opts.nMeasures||4;
+  const sec=SECTION_OF[ts];
+  const is38 = (ts==='3/8');           // 3/8: reglas propias (empieza básica, acaba pulso, nada de pulso en medio)
+  let pool=cellsForSection(sec, ts);
+  // en modo fácil (clave de fa): sin puntuales; ocasionales tratados como puntuales (máx 1); mayoría recurrente
+  if(easy){ pool=pool.filter(c=>c.freq!=='pun'); }
+  const ppm=pulsesPerMeasure(ts);
+  const usedGroups=new Set();   // exclusión por sistema
+  const usedFams=new Set();
+  let ocaCount=0, punCount=0;   // límites por sistema
+  const ocaMax = easy?1:2;      // en fácil, ocasionales como puntuales
+  const measures=[];
+  let lastFreq=null;
+  let isFirstPulseOfSystem=true;
+  let pulseRun=0;               // figuras de pulso seguidas (máx 2)
+  let denseCount=0;             // células densas (>=4 figuras) por sistema
+  const denseMax = easy?1:3;    // limitar densidad (en fa, menos)
+  let lastHeavyPulse=false;     // ¿el pulso anterior tenía 5-6 semicorcheas? (evitar 2 seguidos)
+  let nonBasicRun=0;            // pulsos NO básicos seguidos: máx 2 (1 de cada 3 debe ser básico)
+  // helpers de densidad
+  const cellSemiCount=(c)=>{ // nº de figuras de duración semicorchea en la célula
+    const v=c.variants&&c.variants[0]||[];
+    return v.filter(x=>{ const s=(typeof x==='object'?x.d:x); return s.replace('r','')==='16'; }).length;
+  };
+  const isHeavyPulse=(c)=> cellSemiCount(c)>=5;   // pulso muy lleno (5-6 semis)
+  const isGVE=(c)=> !!c.tuplet;                    // grupo de valoración especial
+
+  for(let m=0;m<nMeasures;m++){
+    const meas=[]; let filled=0; let guard=0;
+    let gveInMeasure=0;          // máximo 1 grupo de valoración especial por compás
+    const isLastMeasure=(m===nMeasures-1);
+    // penúltimo compás del EJERCICIO final: evitar que quede como "dos figuras de pulso"
+    // (p.ej. dos negras antes del cierre negra+silencio queda pobre)
+    const isPreFinalMeasure = opts.isFinalSystem && (m===nMeasures-2);
+    // ÚLTIMO COMPÁS DEL EJERCICIO (último sistema): figura de pulso (1er pulso) + resto en silencio.
+    // En sistemas NO finales: 25% de probabilidad del mismo cierre; 75% solo último pulso = figura.
+    // EXCEPCIÓN 3/4: el último compás de TODO sistema en 3/4 cierra en negra + silencio de blanca.
+    const is34 = (ts==='3/4');
+    const doRestClose = isLastMeasure && (is34 || opts.isFinalSystem || RNG()<0.25);
+    if(doRestClose){
+      if(is34){
+        // negra (figura de pulso) + silencio de blanca (2 pulsos)
+        const pf=pulseFigCell(pool,sec);
+        meas.push(Object.assign({},pf,{isPulseFig:true}));
+        meas.push(makeRestCell(sec, 2));
+        measures.push(meas);
+        continue;
+      }
+      const pf=pulseFigCell(pool,sec);
+      meas.push(Object.assign({},pf,{isPulseFig:true}));
+      let rem=ppm-cellPulses(pf);
+      while(rem>0){ meas.push(makeRestCell(sec)); rem--; }
+      measures.push(meas);
+      continue;
+    }
+    // ¿este compás debe contener una figura de pulso sola? (al menos 1 de cada 2 compases)
+    // EXCEPCIÓN 3/8: no se exige figura de pulso intermedia (combina oca/pun/rec libremente)
+    const needPulseFig = !is38 && (m%2===1) && !measures.some((mm,idx)=> idx>=m-1 && mm.some(c=>c.isPulseFig));
+    while(filled<ppm && guard++<100){
+      const remaining=ppm-filled;
+      // refuerzo anti-3-figuras-de-pulso: si las 2 últimas colocadas SON la figura de pulso de la
+      // sección (sea por marca o por identidad: p.ej. una negra suelta en binario), prohibir otra.
+      const pid0=PULSE_CELL[sec];
+      const isPF=(c)=> c && (c.isPulseFig || c.id===pid0);
+      const recentTail = [].concat(...measures, meas).slice(-2);
+      const twoPFbefore = recentTail.length===2 && recentTail.every(isPF);
+      const isLastPulseOfSystem = (m===nMeasures-1 && remaining===1);
+      let cands=pool.filter(c=>{
+        const p=cellPulses(c);
+        if(p>remaining) return false;                       // no cruza barra
+        if(c.group && usedGroups.has(c.group)) return false;
+        if(c.fam && usedFams.has(c.fam)) return false;
+        if(c.freq==='oca' && ocaCount>=ocaMax) return false;
+        if(c.freq==='pun' && punCount>=1) return false;
+        if(lastHeavyPulse && isHeavyPulse(c)) return false;  // no 2 pulsos de 5-6 semis seguidos
+        if(gveInMeasure>=1 && isGVE(c)) return false;        // máx 1 GVE por compás
+        // 3/8: NINGUNA figura de pulso salvo el último pulso del sistema (lo combina todo lo demás)
+        if(is38 && !isLastPulseOfSystem && c.id===PULSE_CELL[sec]) return false;
+        return true;
+      });
+      // === ÚLTIMO pulso del sistema: FIGURA DE PULSO (prioridad absoluta) ===
+      // EXCEPCIÓN: el 1er sistema del bloque 6/8 puede cerrar con un ritmo BÁSICO
+      // (la melodía continúa en el 2º sistema, no necesita resolución de cierre)
+      if(isLastPulseOfSystem && opts.firstSixBlock){
+        const bas=cands.filter(c=>c.freq==='bas' && cellPulses(c)===1);
+        if(bas.length){ cands=bas; }   // restringir a básicos; sigue el flujo normal de elección abajo
+      } else if(isLastPulseOfSystem){
+        const pf=pulseFigCell(pool,sec);
+        if(pf){
+          const entry=Object.assign({},pf,{isPulseFig:true});
+          meas.push(entry); filled+=cellPulses(pf);
+          if(pf.freq==='oca') ocaCount++; if(pf.freq==='pun') punCount++;
+          lastFreq=pf.freq; isFirstPulseOfSystem=false;
+          pulseRun = pulseRun+1;
+          continue;
+        }
+      }
+      // fuera del último pulso: si ya hay 2 figuras de pulso seguidas, prohibir otra
+      if(twoPFbefore){
+        const pid=PULSE_CELL[sec];
+        const noPF=cands.filter(c=>c.id!==pid);
+        if(noPF.length) cands=noPF;
+      }
+      // penúltimo compás del EJERCICIO: evitar que se rellene con DOS figuras de pulso
+      // (queda pobre antes del cierre). Si ya hay 1 figura de pulso en el compás, prohibir otra.
+      if(isPreFinalMeasure && meas.some(c=>c.isPulseFig)){
+        const pid=PULSE_CELL[sec];
+        const noPF=cands.filter(c=>c.id!==pid);
+        if(noPF.length) cands=noPF;
+      }
+      // en el último compás, reservar el último pulso: no usar células de >1 pulso si dejarían
+      // el final sin hueco de 1 para la figura de pulso
+      if(m===nMeasures-1 && remaining<=2){
+        cands=cands.filter(c=>cellPulses(c)===1);
+      }
+      // en el último compás, NINGÚN pulso (salvo el último forzado) es figura de pulso,
+      // y tampoco el último pulso del compás ANTERIOR -> evita 3 seguidas al cierre
+      if(m===nMeasures-1){
+        const pid=PULSE_CELL[sec];
+        const noPF=cands.filter(c=>c.id!==pid);
+        if(noPF.length) cands=noPF;
+      }
+      // además: si el último pulso del compás anterior fue figura de pulso, el primero de este
+      // compás (cuando este es el penúltimo del sistema) tampoco
+      if(m===nMeasures-2 && meas.length===0){
+        const prev=measures[measures.length-1];
+        const lastPrev = prev && prev[prev.length-1];
+        if(lastPrev && lastPrev.isPulseFig){
+          const pid=PULSE_CELL[sec];
+          const noPF=cands.filter(c=>c.id!==pid);
+          if(noPF.length) cands=noPF;
+        }
+      }
+      // 1er pulso del SISTEMA: cualquier ritmo BÁSICO de la sección (nivel 'bas')
+      if(isFirstPulseOfSystem){
+        const bas=cands.filter(c=>c.freq==='bas');
+        if(bas.length) cands=bas;
+        else { const allow=FIRST_PULSE[sec]; cands=cands.filter(c=>allow.includes(c.id)); } // fallback
+      }
+      // tras PUNTUAL -> cualquier BÁSICO; tras OCASIONAL -> recurrente o básico
+      else if(lastFreq==='pun'){
+        const bas=cands.filter(c=>c.freq==='bas' && cellPulses(c)===1);
+        if(bas.length) cands=bas;
+        else cands=cands.filter(c=>c.freq==='rec' && cellPulses(c)===1 && c.variants[0].length<=2);
+      }
+      else if(lastFreq==='oca'){ cands=cands.filter(c=>c.freq==='rec' || c.freq==='bas'); }
+      // si el compás necesita figura de pulso y aún no la tiene y es el último hueco
+      if(needPulseFig && remaining===1 && !meas.some(c=>c.isPulseFig)){
+        const pf=pulseFigCell(pool,sec); if(pf){ cands=[pf]; }
+      }
+      // no más de 2 figuras de pulso seguidas
+      if(pulseRun>=2){
+        const pid=PULSE_CELL[sec];
+        cands=cands.filter(c=>c.id!==pid);
+        if(cands.length===0){
+          cands=pool.filter(c=>c.id!==pid && cellPulses(c)<=remaining && c.freq==='rec');
+        }
+      }
+      // limitar densidad: si ya hay muchas células densas, evitar más
+      if(denseCount>=denseMax){
+        const lighter=cands.filter(c=>c.variants[0].length<4);
+        if(lighter.length) cands=lighter;
+      }
+      if(cands.length===0){
+        const pf=pulseFigCell(pool,sec);
+        if(pf && cellPulses(pf)<=remaining){ cands=[pf]; } else break;
+      }
+      // 1 DE CADA 3 PULSOS = BÁSICO (máxima prioridad, último filtro): si llevamos 2 pulsos
+      // no-básicos seguidos, el siguiente debe ser básico de 1 pulso. (No aplica en 3/8.)
+      if(!is38 && nonBasicRun>=2 && !isLastPulseOfSystem){
+        let bas=cands.filter(c=>c.freq==='bas' && cellPulses(c)===1);
+        if(!bas.length){ // si ninguna candidata es básica, buscar en el pool una básica que quepa
+          bas=pool.filter(c=>c.freq==='bas' && cellPulses(c)===1 && cellPulses(c)<=remaining);
+        }
+        if(bas.length) cands=bas;
+      }
+      const weighted=[];
+      const BASE_EASY = { ternario:['t_npunt','t_3cor'], binario:['b_negra','b_2cor'], blancas:['w_blanca','w_2negras'] };
+      cands.forEach(c=>{
+        let w = c.freq==='bas'?6:(c.freq==='rec'?5:(c.freq==='oca'?2:1));
+        // dentro de lo ocasional (y general): doble opción a figura de pulso y corcheas base
+        if(BASE_EASY[sec].includes(c.id)) w*=2;
+        for(let k=0;k<w;k++) weighted.push(c);
+      });
+      const chosen=pick(weighted);
+      const entry=Object.assign({}, chosen);
+      entry.isPulseFig = (chosen.id===PULSE_CELL[sec]);
+      meas.push(entry);
+      filled+=cellPulses(chosen);
+      if(chosen.group) usedGroups.add(chosen.group);
+      if(chosen.fam) usedFams.add(chosen.fam);
+      if(chosen.freq==='oca') ocaCount++;
+      if(chosen.freq==='pun') punCount++;
+      lastFreq=chosen.freq;
+      isFirstPulseOfSystem=false;
+      pulseRun = entry.isPulseFig ? pulseRun+1 : 0;
+      if(chosen.variants[0].length>=4) denseCount++;
+      lastHeavyPulse = isHeavyPulse(chosen);   // recordar si este pulso fue 5-6 semis (cuenta también cruzando barra)
+      if(isGVE(chosen)) gveInMeasure++;        // contar GVE de este compás
+      // racha de pulsos no-básicos (para garantizar 1 de cada 3 básico)
+      const choseBasic = (chosen.freq==='bas');
+      const pulsesAdded = cellPulses(chosen);
+      if(choseBasic){ nonBasicRun=0; } else { nonBasicRun += pulsesAdded; }
+    }
+    measures.push(meas);
+  }
+
+  // GARANTÍA DE DIFICULTAD POR SISTEMA (no en modo fácil/clave de fa):
+  //   asegurar 1 OCASIONAL y 1 PUNTUAL. Si la sección no tiene puntuales (binario/blancas),
+  //   se mete una ocasional extra como elemento difícil. El resto queda en básicos/recurrentes.
+  if(!easy){
+    const okTS=(c)=>(!c.onlyTS||c.onlyTS===ts)&&(!c.notTS||c.notTS!==ts);
+    const countLevel=(level)=>measures.reduce((a,meas)=>a+meas.filter(c=>c.freq===level).length,0);
+    const ensureLevel=(level, minN)=>{
+      minN=minN||1;
+      let have=countLevel(level);
+      const opts=pool.filter(c=>c.freq===level && cellPulses(c)===1 && okTS(c));
+      if(!opts.length) return have;
+      let guard=0;
+      while(have<minN && guard++<8){
+        let placed=false;
+        for(let mi=0;mi<measures.length && !placed;mi++){
+          const meas=measures[mi];
+          for(let ci=0;ci<meas.length;ci++){
+            const c=meas[ci];
+            const isFirst=(mi===0&&ci===0), isLast=(mi===measures.length-1&&ci===meas.length-1);
+            if(isFirst||isLast) continue;
+            if(c.isPulseFig||c.freq==='bas'||c.freq===level) continue;
+            if(cellPulses(c)!==1) continue;
+            if(c.id&&(c.id.startsWith('rest')||c.id.includes('silenc'))) continue;
+            meas[ci]=Object.assign({}, pick(opts));
+            placed=true; have++; break;
+          }
+        }
+        if(!placed) break;
+      }
+      return have;
+    };
+    const hasPunInPool = pool.some(c=>c.freq==='pun' && cellPulses(c)===1
+      && (!c.onlyTS||c.onlyTS===ts) && (!c.notTS||c.notTS!==ts));
+    if(hasPunInPool){
+      ensureLevel('pun',1);   // 1 puntual
+      ensureLevel('oca',1);   // 1 ocasional
+    } else {
+      ensureLevel('oca',2);   // sección sin puntuales (blancas): 2 ocasionales como dificultad
+    }
+  }
+
+  return measures; // array de 4 compases, cada uno array de células
+}
+function getSeqPulses(seq){ return seq.reduce((a,c)=>a+cellPulses(c),0); }
+
+
+/* ============================================================
+   MELODÍA con lógica tonal (simplificada para prototipo)
+   - tesitura sol: A3(57)..G5(79); fa: E2(40)..E4(64)
+   - grados conjuntos predominan; tónica al inicio
+   ============================================================ */
+const KEYS=[
+  {name:'Do M',tonic:60,sf:0}, {name:'Sol M',tonic:67,sf:1}, {name:'Re M',tonic:62,sf:2},
+  {name:'Fa M',tonic:65,sf:-1}, {name:'Sib M',tonic:58,sf:-2},
+  {name:'La m',tonic:57,sf:0}, {name:'Mi m',tonic:64,sf:1}, {name:'Si m',tonic:59,sf:2},
+  {name:'Re m',tonic:62,sf:-1}, {name:'Sol m',tonic:55,sf:-2},
+];
+function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNote){
+  // durs: duración (semis) de cada nota real. pulseStart[i]: ¿la nota i inicia un pulso?
+  // startMidi: nota previa (del compás anterior). prevDur: su duración. ms: estado melódico persistente.
+  // seedNote: si se da, es la 1ª nota fija del sistema (tónica/3ª/5ª del acorde).
+  const lo = clef==='bass'?40:57, hi = clef==='bass'?64:79;
+  const comfLo = lo+4, comfHi = hi-4;     // zona cómoda (anti-extremos)
+  ms = ms || { leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
+  if(ms.trend===undefined) ms.trend=0;    // tendencia acumulada reciente (grados netos con signo)
+  // grados: 1=2ª, 2=3ª, 3=4ª, 4=5ª, 5=6ª, 7=8ª.  "salto" = 3ª+ (|step|>=2). "salto grande" = 4ª+ (|step|>=3).
+  const cooling = ms.cooldown>0;          // si hay enfriamiento activo: prohibido 4ª+
+  const out=[];
+  let cur, startIdx, pendingComp=0;
+  if(startMidi!=null){ cur=startMidi; startIdx=0; }
+  else if(seedNote!=null){ cur=seedNote; out.push(cur); startIdx=1; ms.trend=0; ms.leapRun=0; ms.leapDir=0; }
+  else { cur = clef==='bass'? key.tonic-12 : key.tonic; while(cur<lo) cur+=12; while(cur>hi) cur-=12; out.push(cur); startIdx=1; }
+
+  for(let i=startIdx;i<durs.length;i++){
+    const prevD = (i===0)? (prevDur||4) : durs[i-1];
+    const curShort = prevD<2 || durs[i]<2;       // alguna semicorchea de por medio
+    const bothLong = prevD>=4 && durs[i]>=4;      // ambas largas (>= negra)
+    const isPulseCross = !!(pulseStart && pulseStart[i]);
+    const inSemiRun = (prevD<2 && durs[i]<2);     // dentro de una cadena de semicorcheas
+    if(!inSemiRun){ ms.semiRunDir=0; ms.semiTurns=0; }   // fin de racha: resetear contador de giros
+
+    // 1) REPETICIÓN: casi nula. CERO entre semicorcheas. Muy rara entre notas largas.
+    const repProb = curShort? 0 : (bothLong? 0.012 : 0.004);
+    if(repProb>0 && RNG()<repProb){ out.push(cur); ms.leapRun=0; ms.leapDir=0; ms.trend=0; continue; }
+
+    // 2) intervalo base (grados: 1=2ª, 2=3ª, 3=4ª, 4=5ª, 5=6ª, 7=8ª). Tope absoluto: 8ª.
+    let step;
+    if(pendingComp!==0){
+      const dir = pendingComp>0?1:-1;
+      step = dir * (RNG()<0.6?1:2);
+      pendingComp -= step;
+      if((pendingComp>0?1:(pendingComp<0?-1:0)) !== Math.sign(step)) pendingComp=0;
+    } else if(bothLong){
+      const r=RNG();
+      step = r<0.34? (RNG()<0.5?1:-1)        // 2ª
+           : r<0.60? (RNG()<0.5?2:-2)        // 3ª
+           : r<0.82? (RNG()<0.5?3:-3)        // 4ª
+           : r<0.92? (RNG()<0.5?4:-4)        // 5ª
+           : r<0.97? (RNG()<0.5?5:-5)        // 6ª
+           : (RNG()<0.5?7:-7);               // 8ª (tope)
+      if(Math.abs(step)>=4){ pendingComp = -Math.sign(step)*(Math.abs(step)-1); }
+    } else {
+      const r=RNG();
+      step = r<0.62? (RNG()<0.5?1:-1)        // 2ª
+           : r<0.85? (RNG()<0.5?2:-2)        // 3ª
+           : (RNG()<0.5?3:-3);               // 4ª
+    }
+    if(curShort){ step = (step>0?1:-1)*1; }   // SEMICORCHEA: SIEMPRE 2ª (nunca 3ª+)
+    if(Math.abs(step)>7) step = Math.sign(step)*7;   // nunca más de 8ª
+
+    // GRUPOS DE SEMICORCHEAS (5-6 semis): máximo UN cambio de dirección (sin zigzag).
+    // Si ya se produjo un giro en la racha, mantener la dirección actual.
+    if(inSemiRun){
+      const sdir = step>0?1:-1;
+      if(ms.semiRunDir===0){ ms.semiRunDir=sdir; }          // primera dirección de la racha
+      else if(sdir!==ms.semiRunDir){
+        // intento de cambiar de dirección
+        if((ms.semiTurns||0)>=1){ step = ms.semiRunDir*1; } // ya hubo un giro -> no permitir otro
+        else { ms.semiTurns=(ms.semiTurns||0)+1; ms.semiRunDir=sdir; } // permitir el único giro
+      }
+    }
+
+    // 3) ENFRIAMIENTO por compases: si hay cooldown activo, nada de 4ª+ -> recortar a 3ª
+    if(cooling && Math.abs(step)>=3 && !curShort){ step = Math.sign(step)*2; pendingComp=0; }
+
+    // 4) GESTIÓN DE SALTOS Y ARPEGIOS:
+    //    - Tras CUALQUIER salto (3ª+), el siguiente movimiento DEBE ser 2ª (grado conjunto),
+    //      EXCEPTO si se encadena un arpegio: 2º salto consecutivo en la MISMA dirección.
+    //    - El arpegio es como mucho de 2 saltos; tras él, 2ª contraria.
+    if(!curShort && ms.leapRun>=1 && ms.leapDir!==0){
+      if(ms.leapRun===1 && Math.abs(step)>=2 && (step>0?1:-1)===ms.leapDir){
+        // 2º salto en la misma dirección que el 1º -> permitir arpegio (mantener el salto)
+        step = ms.leapDir * Math.abs(step);
+      } else {
+        // cualquier otro caso tras un salto -> forzar 2ª en sentido OPUESTO al último salto
+        step = -ms.leapDir * 1;
+        pendingComp = 0;
+      }
+    } else {
+      // sin salto previo: compensación de tendencia larga para saltos de 4ª+ (acantilado)
+      if(Math.abs(step)>=3 && !curShort){
+        if(ms.trend>=3 && step>0){ step=-step; pendingComp=0; }
+        else if(ms.trend<=-3 && step<0){ step=-step; pendingComp=0; }
+        if(Math.abs(step)>=5 && Math.abs(ms.trend)<5){ step=Math.sign(step)*4; } // 6ª/7ª solo con tendencia
+      }
+    }
+    const dir0 = step>0?1:-1;
+
+    // 6) sesgo anti-extremos
+    if(cur<=comfLo && step<0 && RNG()<0.7) step = -step;
+    else if(cur>=comfHi && step>0 && RNG()<0.7) step = -step;
+
+    // re-aplicar límite de giro en racha de semis (el sesgo anti-extremos pudo invertir el step)
+    if(inSemiRun){
+      const sdir2 = step>0?1:-1;
+      if(ms.semiRunDir!==0 && sdir2!==ms.semiRunDir){
+        if((ms.semiTurns||0)>=1){ step = ms.semiRunDir*Math.abs(step)||ms.semiRunDir; } // ya hubo giro: mantener
+        else { ms.semiTurns=(ms.semiTurns||0)+1; ms.semiRunDir=sdir2; }
+      }
+    }
+
+    // 7) aplicar con rebote que nunca repite nota
+    const dir=step>0?1:-1;
+    let next=cur;
+    for(let k=0;k<Math.abs(step);k++){ next=nextScaleNote(next,dir,key); }
+    if(next<lo||next>hi){ next=cur; for(let k=0;k<Math.abs(step);k++){ next=nextScaleNote(next,-dir,key); } pendingComp=0; }
+    if(next===cur){ next=nextScaleNote(cur, dir, key); if(next<lo||next>hi) next=nextScaleNote(cur,-dir,key); }
+    if(curShort && next===cur){ next=nextScaleNote(cur, -dir, key); if(next<lo||next>hi) next=nextScaleNote(cur, dir, key); }
+
+    // 8) VERIFICACIÓN FINAL sobre la nota real
+    function scaleGap(a,b,key){ if(a===b) return 0; const d=b>a?1:-1; let m=a,g=0; while(m!==b && g<20){ m=nextScaleNote(m,d,key); g++; } return d*g; }
+    let gap = scaleGap(cur, next, key);            // 1=2ª, 2=3ª, 3=4ª...
+    let realDir = Math.sign(gap);
+    let realLeap = Math.abs(gap)>=2;
+    // tope 8ª real
+    if(Math.abs(gap)>7){ let t=cur; for(let k=0;k<7;k++){ t=nextScaleNote(t,realDir,key); } if(t>=lo&&t<=hi){ next=t; gap=scaleGap(cur,next,key); realDir=Math.sign(gap); realLeap=Math.abs(gap)>=2; } }
+    // semicorchea: forzar que el intervalo real sea 2ª
+    if(curShort && Math.abs(gap)>1){
+      let alt=nextScaleNote(cur, realDir||1, key);
+      if(alt<lo||alt>hi) alt=nextScaleNote(cur, -(realDir||1), key);
+      next=alt; gap=scaleGap(cur,next,key); realDir=Math.sign(gap); realLeap=Math.abs(gap)>=2;
+    }
+    // tras un salto previo: garantizar 2ª REAL salvo arpegio en curso (2º salto misma dirección).
+    if(!curShort && ms.leapDir!==0 && ms.leapRun>=1){
+      const isArpeggioStep = (ms.leapRun===1 && realLeap && realDir===ms.leapDir); // 2º salto misma dir
+      if(!isArpeggioStep && (realLeap || realDir===ms.leapDir)){
+        // forzar 2ª en sentido OPUESTO al último salto (compensación)
+        let alt=nextScaleNote(cur, -ms.leapDir, key);
+        if(alt<lo||alt>hi) alt=nextScaleNote(cur, ms.leapDir, key);
+        next=alt; gap=scaleGap(cur,next,key); realDir=Math.sign(gap); realLeap=Math.abs(gap)>=2;
+      }
+    }
+    const realBig = Math.abs(gap)>=3;
+    // disparar enfriamiento si 4ª+, o si fueron 2 saltos seguidos misma dirección (aunque 3ª+3ª)
+    if(realBig) ms.hadBigLeapThisMeasure = true;
+    if(realLeap && realDir===ms.leapDir && realDir!==0){
+      ms.leapRun++;
+      if(ms.leapRun>=2) ms.hadBigLeapThisMeasure = true; // 2 saltos misma dir -> también compensa después
+    }
+    else if(realLeap && realDir!==0){ ms.leapDir=realDir; ms.leapRun=1; }
+    else { ms.leapRun=0; ms.leapDir=0; }
+    // tendencia acumulada
+    if(realBig){ ms.trend = 0; }
+    else { ms.trend += gap; if(ms.trend>8) ms.trend=8; if(ms.trend<-8) ms.trend=-8; }
+    out.push(next); cur=next;
+  }
+
+  // POST-PROCESO: en grupos de semicorcheas (>=4 seguidas), permitir como mucho UN cambio de
+  // dirección. Si hay más de un giro, se reescribe la racha por grados conjuntos: mantiene la
+  // dirección inicial hasta el primer giro y luego la contraria, sin volver a girar.
+  {
+    let i=0;
+    while(i<out.length){
+      // ¿arranca aquí una racha de semis? (nota i e i+1 ambas semis)
+      const isSemi=(k)=> k>0 ? (durs[k-1]<2 && durs[k]<2) : false;
+      // localizar el tramo [a..b] de notas unidas por intervalos entre semis
+      if(i+1<out.length && durs[i]<2 && durs[i+1]<2){
+        let a=i, b=i+1;
+        while(b+1<out.length && durs[b]<2 && durs[b+1]<2) b++;
+        const len=b-a+1;
+        if(len>=4){
+          // contar giros reales
+          const dirs=[]; for(let k=a;k<b;k++) dirs.push(Math.sign(out[k+1]-out[k]));
+          let turns=0; for(let k=1;k<dirs.length;k++) if(dirs[k]!==0 && dirs[k-1]!==0 && dirs[k]!==dirs[k-1]) turns++;
+          if(turns>1){
+            // reescribir: dirección inicial = la del primer paso; punto de giro = a mitad de la racha
+            const startDir = dirs.find(d=>d!==0) || 1;
+            const turnAt = a + Math.ceil(len/2);   // un único giro hacia la mitad
+            let nn=out[a];
+            for(let k=a+1;k<=b;k++){
+              const d = (k<=turnAt)? startDir : -startDir;
+              let cand=nextScaleNote(nn, d, key);
+              if(cand<lo||cand>hi) cand=nextScaleNote(nn, -d, key);
+              out[k]=cand; nn=cand;
+            }
+          }
+        }
+        i=b+1;
+      } else i++;
+    }
+  }
+
+  return out;
+}
+function nextScaleNote(midi,dir,key){
+  const pcs=[0,2,4,5,7,9,11].map(x=>(key.tonic+x)%12);
+  let m=midi+dir;
+  for(let g=0;g<12;g++){ if(pcs.includes(((m%12)+12)%12)) return m; m+=dir; }
+  return midi+dir;
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+function rawStr(raw){ return (typeof raw==='object' && raw!==null) ? raw.d : raw; }
+function vfDur(raw){ return rawStr(raw).replace('d','').replace('r',''); }
+function buildMeasureNotes(seq, ts, clef, key, isFinal, melCursor, prevDur, melState, seedNote, isSystemEnd){
+  const figs=[];
+  seq.forEach(cell=>{
+    const variant=pick(cell.variants);
+    variant.forEach(raw=>{
+      const rs=rawStr(raw);
+      figs.push({raw:rs, cell, rest:rs.includes('r')});
+    });
+  });
+  // calcular posición en semicorcheas y marcar qué notas reales inician pulso
+  const PS={'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'4/4':4,'2/2':8,'3/2':8,'4/2':8}[ts]||4;
+  let pos=0; const pulseStartReal=[];
+  figs.forEach(f=>{
+    const base=vfDur(f.raw);
+    let dur = f.cell.tuplet ? (PS*cellPulses(f.cell))/(f.cell.variants[0].length) : (DURS[base]||1);
+    if(!f.rest){ pulseStartReal.push(Math.abs(pos % PS) < 1e-6); }
+    pos+=dur;
+  });
+  const realDurs=figs.filter(f=>!f.rest).map(f=>DURS[vfDur(f.raw)]||1);
+  // estado melódico persistente entre compases (saltos + enfriamiento)
+  const ms = melState || { leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
+  ms.hadBigLeapThisMeasure = false;             // se evalúa dentro de noteSeqFor
+  const mel=noteSeqFor(realDurs, clef, key, melCursor!=null?melCursor:null, pulseStartReal, prevDur, ms, seedNote);
+  // tras cerrar el compás: gestionar el contador de enfriamiento (en compases)
+  if(ms.hadBigLeapThisMeasure){ ms.cooldown = 2; }    // 4ª+ en este compás -> 2 compases sin saltos grandes
+  else if(ms.cooldown>0){ ms.cooldown--; }            // ir descontando
+  let mi=0; let lastMidi=melCursor; let lastDur=prevDur;
+  figs.forEach(f=>{ if(!f.rest){ f.midi=mel[mi++]; lastMidi=f.midi; lastDur=DURS[vfDur(f.raw)]||1; } });
+  // forzar tónica en la última nota real del ejercicio
+  if(isFinal){
+    const loC=clef==='bass'?40:57, hiC=clef==='bass'?64:79;
+    const realIdx=[]; figs.forEach((f,i)=>{ if(!f.rest) realIdx.push(i); });
+    if(realIdx.length){
+      const lastI=realIdx[realIdx.length-1];
+      const prevMidi = realIdx.length>=2 ? figs[realIdx[realIdx.length-2]].midi : null;
+      // candidatas de tónica en todas las octavas dentro de tesitura; elegir la MÁS CERCANA a la
+      // nota anterior (minimiza el salto de entrada a la tónica).
+      const pcTon = ((clef==='bass'? key.tonic-12 : key.tonic)%12+12)%12;
+      let cands=[]; for(let m=loC;m<=hiC;m++){ if(((m%12)+12)%12===pcTon) cands.push(m); }
+      let t = cands[0];
+      if(prevMidi!=null && cands.length){ t = cands.reduce((best,m)=> Math.abs(m-prevMidi)<Math.abs(best-prevMidi)?m:best, cands[0]); }
+      figs[lastI].midi=t; lastMidi=t;
+      // si aún hay salto a la tónica y la penúltima o la última es semicorchea -> entrar por 2ª
+      if(realIdx.length>=2){
+        const prevI=realIdx[realIdx.length-2];
+        const prevDurShort=(DURS[vfDur(figs[prevI].raw)]||4)<2;
+        const lastDurShort=(DURS[vfDur(figs[lastI].raw)]||4)<2;
+        const sg=(a,b)=>{ if(a===b)return 0; const d=b>a?1:-1; let m=a,g=0; while(m!==b&&g<20){m=nextScaleNote(m,d,key);g++;} return d*g; };
+        if(Math.abs(sg(figs[prevI].midi,t))>=2 && (prevDurShort||lastDurShort)){
+          let alt=nextScaleNote(t,-1,key);            // 2ª por debajo de la tónica
+          if(alt<loC||alt>hiC) alt=nextScaleNote(t,1,key);
+          figs[prevI].midi=alt;
+        }
+      }
+    }
+  }
+  // fin de SISTEMA (no de ejercicio): la última nota debe ser del acorde de tónica (tónica/3ª/5ª)
+  else if(isSystemEnd){
+    const loC=clef==='bass'?40:57, hiC=clef==='bass'?64:79;
+    const realIdx=[]; figs.forEach((f,i)=>{ if(!f.rest) realIdx.push(i); });
+    if(realIdx.length){
+      const lastI=realIdx[realIdx.length-1];
+      const prevMidi = realIdx.length>=2 ? figs[realIdx[realIdx.length-2]].midi : figs[lastI].midi;
+      // clases de altura del acorde de tónica
+      const base = (clef==='bass'? key.tonic-12 : key.tonic);
+      const third = base + (key.minor?3:4);
+      const fifth = base + 7;
+      const pcs = [base,third,fifth].map(n=>((n%12)+12)%12);
+      // candidatas: todas las notas de la tesitura cuya clase de altura sea del acorde
+      let cands=[]; for(let m=loC;m<=hiC;m++){ if(pcs.includes(((m%12)+12)%12)) cands.push(m); }
+      if(cands.length){
+        // elegir la más cercana a la nota anterior (cierre suave)
+        let t=cands.reduce((best,m)=> Math.abs(m-prevMidi)<Math.abs(best-prevMidi)?m:best, cands[0]);
+        figs[lastI].midi=t; lastMidi=t;
+        // misma protección: si la penúltima/última es semicorchea y hay salto, acercar por 2ª
+        if(realIdx.length>=2){
+          const prevI=realIdx[realIdx.length-2];
+          const prevDurShort=(DURS[vfDur(figs[prevI].raw)]||4)<2;
+          const lastDurShort=(DURS[vfDur(figs[lastI].raw)]||4)<2;
+          const sg=(a,b)=>{ if(a===b)return 0; const d=b>a?1:-1; let m=a,g=0; while(m!==b&&g<20){m=nextScaleNote(m,d,key);g++;} return d*g; };
+          if(Math.abs(sg(figs[prevI].midi,t))>=2 && (prevDurShort||lastDurShort)){
+            let alt=nextScaleNote(t,-1,key);
+            if(alt<loC||alt>hiC) alt=nextScaleNote(t,1,key);
+            figs[prevI].midi=alt;
+          }
+        }
+      }
+    }
+  }
+  if(typeof LAST_MELODY!=='undefined' && LAST_MELODY){
+    const measNotes=figs.filter(f=>!f.rest).map(f=>f.midi);
+    LAST_MELODY.push(measNotes);
+  }
+  return {figs, lastMidi, lastDur};
+}
+
+// capa de revisión: acumulador de notas reales por compás (lo rellena buildMeasureNotes)
+let LAST_MELODY=null;
+// cuenta la repetición máxima consecutiva y el % de repeticiones de toda la melodía
+function melodyRepetitionStats(measures){
+  const flat=[]; measures.forEach(m=>m.forEach(n=>flat.push(n)));
+  if(flat.length<2) return {maxRun:0, repRatio:0, total:flat.length};
+  let maxRun=1, run=1, reps=0;
+  for(let i=1;i<flat.length;i++){
+    if(flat[i]===flat[i-1]){ run++; reps++; if(run>maxRun)maxRun=run; }
+    else run=1;
+  }
+  return {maxRun, repRatio:reps/(flat.length-1), total:flat.length};
+}
+
+let CURRENT=null;
+function regen(){
+  RNG=Math.random;
+  if(typeof stopMetro==='function' && metroOn) stopMetro();
+  try{
+    const chordDegrees=[0,2,4]; // grados del acorde de tónica: tónica, 3ª, 5ª
+    const MAX_TRIES=8;          // capa de revisión: reintenta si la melodía sale con muchas repetidas
+    let bestModel=null, bestRatio=Infinity, accepted=false;
+    for(let attempt=0; attempt<MAX_TRIES && !accepted; attempt++){
+      const struct=buildStructure();
+      const key=pick(KEYS);
+      const systems=struct.systems.map((ts,idx)=>{
+        const isFa = (idx===struct.faSlot);
+        const clef = isFa?'bass':'treble';
+        const nMeasures = (ts==='3/8')?6:4;
+        const isFinalSystem = (idx===struct.systems.length-1);
+        const isFirstSix = (ts==='6/8' && idx===struct.sixPos);
+        const measures=fillSystem(ts, {easy:isFa, nMeasures, isFinalSystem, firstSixBlock:isFirstSix});
+        const continued6 = (ts==='6/8' && idx===struct.sixPos+1);
+        let startDeg = 0;
+        if(idx>0 && !continued6){ startDeg = pick(chordDegrees); }
+        return {ts, clef, measures, continued6, startDeg};
+      });
+      const model={struct,key,systems};
+      // renderizar (genera la melodía) y medir repeticiones en el MISMO paso
+      LAST_MELODY=[];
+      renderAll(model);                          // esto ya dibuja en pantalla
+      const stats=melodyRepetitionStats(LAST_MELODY);
+      LAST_MELODY=null;
+      CURRENT=model;
+      document.getElementById('meta').textContent =
+        'Tonalidad: '+key.name+' · Sistemas: '+struct.systems.join('  ')+
+        ' · Clave de fa en sistema '+(struct.faSlot+1);
+      // criterio: ninguna nota repetida 3+ veces seguidas y <2% de repeticiones
+      if(stats.maxRun<=2 && stats.repRatio<0.02){ accepted=true; break; }
+      // si no, recordar el menos malo por si agotamos intentos (ya está en pantalla el último)
+      if(stats.repRatio<bestRatio){ bestRatio=stats.repRatio; bestModel=null; }
+    }
+    // si ningún intento fue aceptable, en pantalla queda el último generado (aleatorio);
+    // es muy raro: con 8 intentos la probabilidad de no encontrar uno limpio es mínima.
+  }catch(e){
+    document.getElementById('score').innerHTML='<div class="err">Error: '+e.message+'\n'+e.stack+'</div>';
+  }
+}
+
+function renderAll(model){
+  const host=document.getElementById('score'); host.innerHTML='';
+  PULSE_MAP=[];   // posiciones de cada pulso para el metrónomo (x, y, ancho, acento, métrica)
+  RHYTHM_MAP=[];  // onsets de las figuras del ritmo escrito (para reproducirlo)
+  PULSE_CLOCK=0;  // reloj global de pulsos
+  const W=1180, SYS_H=130;
+  const renderer=new VF.Renderer(host, VF.Renderer.Backends.SVG);
+  renderer.resize(W, SYS_H*model.systems.length+24);
+  const ctx=renderer.getContext();
+  const keySpec=keySigSpec(model.key);
+  let y=12;
+  model.systems.forEach((sys,si)=>{
+    let x=12;
+    const nextSys = model.systems[si+1] || null;
+    // sembrar la 1ª nota del sistema según startDeg (tónica/3ª/5ª). La continuación 6/8
+    // hereda el cursor del sistema anterior (melodía continua), así que no se reinicia.
+    if(sys._melCursor===undefined && !sys.continued6){
+      const lo = sys.clef==='bass'?40:57, hi = sys.clef==='bass'?64:79;
+      const baseTon = sys.clef==='bass'? model.key.tonic-12 : model.key.tonic;
+      let n=baseTon;
+      for(let k=0;k<(sys.startDeg||0);k++){ n=nextScaleNote(n,1,model.key); }
+      while(n<lo) n+=12; while(n>hi) n-=12;
+      sys._melSeed=n;   // primera nota fija del sistema
+    }
+    // ancho de cada compás según su "peso" (nº de figuras), repartiendo el ancho del sistema
+    const totalW = W-24;
+    const firstExtra = 56; // espacio extra del 1er compás (clef+armadura+compás)
+    const weights = sys.measures.map(seq=>{
+      let nfigs=0; seq.forEach(c=>nfigs+=c.variants[0].length);
+      return Math.max(2, nfigs);
+    });
+    const wsum = weights.reduce((a,b)=>a+b,0);
+    const nMeas = sys.measures.length;
+    // espacio extra en el ÚLTIMO compás si anuncia cambio de compás/clave del siguiente sistema
+    let lastExtra=0;
+    if(nextSys){
+      if(nextSys.ts!==sys.ts && !nextSys.continued6) lastExtra+=34; // timesig pequeña
+      if(nextSys.clef!==sys.clef) lastExtra+=30;                    // clave pequeña
+    }
+    const distributable = (totalW-firstExtra-lastExtra);
+    // ANCHO MÍNIMO: en vez de repartir 100% proporcional (compases vacíos minúsculos, llenos enormes),
+    // se da a cada compás un suelo fijo (MIN_FRAC del reparto equitativo) y se distribuye el resto
+    // proporcionalmente. Así se comprimen los extremos y todos "respiran".
+    const MIN_FRAC = 0.55;                       // 55% del ancho va a partes iguales; 45% proporcional
+    const baseEach = distributable*MIN_FRAC/nMeas;
+    const propPool = distributable*(1-MIN_FRAC);
+    const widths = weights.map((w,i)=>
+      baseEach + propPool*(w/wsum) + (i===0?firstExtra:0) + (i===nMeas-1?lastExtra:0)
+    );
+    sys.measures.forEach((seq,mi)=>{
+      const isLastMeasureOfSystem = (mi===nMeas-1);
+      const measureW = widths[mi];
+      const stave=new VF.Stave(x,y,measureW);
+      if(mi===0){
+        stave.addClef(sys.clef); stave.addKeySignature(keySpec);
+        // no reescribir indicación de compás en el 2º sistema del bloque 6/8
+        if(!sys.continued6){ stave.addTimeSignature(sys.ts); }
+      }
+      // anunciar cambio al final del sistema (en el último compás): timesig y/o clave del siguiente
+      if(isLastMeasureOfSystem && nextSys){
+        // si el siguiente es la continuación del 6/8, no anunciar compás (ya está)
+        if(nextSys.ts!==sys.ts && !nextSys.continued6){ stave.addEndTimeSignature(nextSys.ts); }
+        if(nextSys.clef!==sys.clef){ stave.addEndClef(nextSys.clef, 'small'); }
+      }
+      // doble barra final del ejercicio
+      if(si===model.systems.length-1 && isLastMeasureOfSystem){
+        stave.setEndBarType(VF.Barline.type.END);
+      }
+      stave.setContext(ctx).draw();
+      const isFinal = (si===model.systems.length-1 && isLastMeasureOfSystem);
+      // fin de LÍNEA melódica: último compás de esta entrada y la siguiente no es la continuación 6/8.
+      // En esos puntos la melodía debe cerrar en nota del acorde (tónica/3ª/5ª).
+      const isSystemEnd = isLastMeasureOfSystem && !(nextSys && nextSys.continued6);
+      if(!sys._melState) sys._melState={ leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
+      const seedNote = (mi===0 && sys._melCursor===undefined) ? sys._melSeed : undefined;
+      const res=buildMeasureNotes(seq, sys.ts, sys.clef, model.key, isFinal, sys._melCursor, sys._melDur, sys._melState, seedNote, isSystemEnd);
+      sys._melCursor = res.lastMidi;
+      sys._melDur = res.lastDur;
+      drawFigs(ctx, stave, res.figs, sys.ts, sys.clef, measureW);
+      // registrar pulsos de este compás para el metrónomo.
+      const ppmThis = pulsesPerMeasure(sys.ts);
+      const measureX0 = stave.getNoteStartX();
+      const measureX1 = stave.getX()+stave.getWidth();
+      const usableW = measureX1 - measureX0 - 6;
+      const measureStartPulse = PULSE_CLOCK;          // pulso global donde empieza este compás
+      for(let p=0;p<ppmThis;p++){
+        PULSE_MAP.push({
+          x: measureX0 + usableW*(p/ppmThis),
+          w: usableW/ppmThis,
+          y: y,
+          h: SYS_H-10,
+          accent: (p===0),               // 1er pulso del compás -> acento
+          ts: sys.ts,
+          measX: measureX0, measW: measureX1-measureX0,
+          firstOfMeasure: (p===0)
+        });
+      }
+      // registrar las FIGURAS del ritmo (para reproducir el ritmo escrito).
+      // registrar las FIGURAS del ritmo (para reproducir el ritmo escrito).
+      // drawFigs YA calculó la posición real de cada figura en semicorcheas (_start) y su duración
+      // (_dur), respetando puntillos y grupos de valoración especial (tresillos, etc.). Reusamos eso
+      // en vez de recalcular, que era la fuente de los desajustes. Los silencios NO suenan pero su
+      // _start/_dur ya están contados en la cuadratura, así que el reloj queda perfecto.
+      const psSemis = ({'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'2/2':8,'3/2':8,'4/2':8})[sys.ts]||4;
+      res.figs.forEach(f=>{
+        if(!f.rest){
+          const startSemis = (f._start!=null)? f._start : 0;
+          RHYTHM_MAP.push({
+            atPulse: measureStartPulse + startSemis/psSemis,   // onset exacto en pulsos globales
+            x: measureX0 + usableW*((startSemis/psSemis)/ppmThis),
+            y: y, h: SYS_H-10
+          });
+        }
+      });
+      PULSE_CLOCK += ppmThis;     // avanzar el reloj global de pulsos
+      x+=measureW;
+    });
+    y+=SYS_H;
+  });
+}
+
+// armadura VexFlow (string tipo "G", "F", "Bb", "D"...) según la tonalidad
+function keySigSpec(key){
+  const MAP={'Do M':'C','Sol M':'G','Re M':'D','Fa M':'F','Sib M':'Bb',
+             'La m':'Am','Mi m':'Em','Si m':'Bm','Re m':'Dm','Sol m':'Gm'};
+  return MAP[key.name]||'C';
+}
+
+function drawFigs(ctx, stave, figs, ts, clef, measureW){
+  const PS={'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'4/4':4,'2/2':8,'3/2':8,'4/2':8}[ts]||4;
+  // 1) calcular posición REAL (en semicorcheas) de cada figura y su pulso
+  let pos=0;
+  figs.forEach((f,fi)=>{
+    const base=vfDur(f.raw);
+    const durKey=f.raw.replace('r','');
+    let dur;
+    if(f.cell.tuplet){
+      const tp=f.cell.tuplet;
+      const variants=f.cell.variants[0];
+      const off=tp.offset||0;                 // nº de figuras NORMALES antes del grupo irregular
+      const first=tp.first||variants.length;   // nº de figuras que forman el grupo irregular
+      // índice de esta figura DENTRO de la célula (las figuras de una misma célula son consecutivas)
+      let idxInCell=0;
+      for(let k=fi-1;k>=0 && figs[k].cell===f.cell;k--) idxInCell++;
+      if(idxInCell < off){
+        // figura NORMAL previa al tresillo: dura su valor nominal
+        dur = DURS[durKey]||DURS[base]||1;
+      } else {
+        // figura del grupo irregular: el grupo ocupa el espacio que dejan libre las normales,
+        // repartido entre las 'first' figuras del tresillo.
+        let usadoPorNormales=0;
+        for(let k=0;k<off;k++){ const dk=String(variants[k].d||variants[k]).replace('r',''); usadoPorNormales+=DURS[dk]||1; }
+        const espacioGrupo = PS*cellPulses(f.cell) - usadoPorNormales;
+        dur = espacioGrupo / first;
+      }
+    } else {
+      dur = DURS[durKey]||DURS[base]||1;
+    }
+    f._start=pos; f._dur=dur; f._pulse=Math.floor(pos/PS + 1e-6);
+    pos+=dur;
+  });
+  // 2) dirección de plicas según norma: referencia = línea central del pentagrama
+  //    sol: Si4 (MIDI 71); fa: Re3 (MIDI 50). Encima -> plica abajo; debajo -> arriba.
+  const refMidi = (clef==='bass') ? 50 : 71;
+  const stemForMidi = (m)=> (m> refMidi) ? -1 : 1;
+  // dirección por nota individual
+  figs.forEach(f=>{ f._stem = f.rest? 1 : stemForMidi(f.midi); });
+  // unificar dirección dentro de cada grupo BEAMEADO (mismo pulso, figuras con corchete):
+  // gana la dirección de la nota más alejada de la referencia (compensación)
+  const beamGroups = computeBeamGroups(figs); // arrays de índices
+  beamGroups.forEach(g=>{
+    let maxDist=-1, dir=1;
+    g.forEach(i=>{ if(!figs[i].rest){ const dist=Math.abs(figs[i].midi-refMidi); if(dist>maxDist){ maxDist=dist; dir=stemForMidi(figs[i].midi); } } });
+    g.forEach(i=>{ figs[i]._stem=dir; });
+  });
+  const notes=figs.map(f=>{
+    const dur=vfDur(f.raw);
+    if(f.rest){
+      // los silencios de SEMICORCHEA dentro de un grupo chocan con las barras del beam;
+      // se bajan una posición (sutil) para que respiren bajo el corchete.
+      const isSemi = f.raw.replace('r','')==='16';
+      let restKey;
+      if(clef==='bass') restKey = isSemi ? 'c/3' : 'd/3';
+      else              restKey = isSemi ? 'a/4' : 'b/4';
+      const rn=new VF.StaveNote({keys:[restKey],duration:dur+'r',clef});
+      if(f.raw.includes('d')) rn.addModifier(new VF.Dot(),0);
+      return rn;
+    }
+    const sn=new VF.StaveNote({keys:[midiToKey(f.midi)],duration:dur,clef,stem_direction:f._stem});
+    if(f.raw.includes('d')) sn.addModifier(new VF.Dot(),0);
+    return sn;
+  });
+  // 3) tuplets (agrupar figuras consecutivas de la misma célula tuplet) — ANTES de formatear
+  //    respeta offset/first: el bracket cubre SOLO las figuras irregulares (p.ej. el tresillo
+  //    de fracción 'C + 3S' agrupa las 3 semis, NO la corchea inicial)
+  const tupletObjs=[];
+  figs.forEach((f,idx)=>{
+    if(f.cell.tuplet && (idx===0 || figs[idx-1].cell!==f.cell)){
+      // localizar el bloque completo de esta célula
+      let j=idx; const block=[];
+      while(j<figs.length && figs[j].cell===f.cell){ block.push(notes[j]); j++; }
+      const tp=f.cell.tuplet;
+      const off=tp.offset||0;
+      const count=tp.first||block.length;
+      const group=block.slice(off, off+count);   // solo las irregulares
+      if(group.length>=2){
+        tupletObjs.push(new VF.Tuplet(group,{num_notes:tp.num, notes_occupied:tp.notes, bracketed:true, ratioed:false}));
+      }
+    }
+  });
+  const [n,d]=ts.split('/').map(Number);
+  // modo estricto: la voz DEBE sumar el compás exacto. Si no, VexFlow lanza y lo capturamos.
+  const voice=new VF.Voice({num_beats:n,beat_value:d});
+  voice.setStrict(false); // permitimos que el tuplet ajuste, pero validamos abajo
+  voice.addTickables(notes);
+  // 4) beaming ESTRICTO por pulso
+  const beams=beamStrictByPulse(figs, notes);
+  // formatear dentro del ancho del compás reservando espacio para clef/keysig/timesig del 1er compás
+  const startX = stave.getNoteStartX();
+  const usable = stave.getX() + stave.getWidth() - startX - 12;
+  new VF.Formatter().joinVoices([voice]).format([voice], Math.max(40, usable));
+  voice.draw(ctx,stave);
+  beams.forEach(b=>b.setContext(ctx).draw());
+  tupletObjs.forEach(t=>t.setContext(ctx).draw());
+}
+
+// agrupa SOLO figuras que comparten el mismo índice de pulso. Nunca cruza pulso.
+// devuelve grupos de índices que van bajo el mismo corchete (mismo pulso), silencios de extremos recortados
+function computeBeamGroups(figs){
+  const groups=[];
+  let cur=[]; let curPulse=null;
+  const flush=()=>{
+    while(cur.length && figs[cur[0]].rest) cur.shift();
+    while(cur.length && figs[cur[cur.length-1]].rest) cur.pop();
+    const real=cur.filter(i=>!figs[i].rest);
+    if(real.length>=2) groups.push(real.slice());
+    cur=[];
+  };
+  figs.forEach((f,i)=>{
+    const base=vfDur(f.raw);
+    const beamable=(base==='8'||base==='16'||base==='8d');
+    if(f._pulse!==curPulse){ flush(); curPulse=f._pulse; }
+    if(beamable){ cur.push(i); }
+    else { flush(); }
+  });
+  flush();
+  return groups;
+}
+function beamStrictByPulse(figs, notes){
+  const groups=computeBeamGroups(figs);
+  return groups.map(g=>new VF.Beam(g.map(i=>notes[i])));
+}
+
+function midiToKey(m){
+  const names=['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
+  const pc=((m%12)+12)%12; const oct=Math.floor(m/12)-1;
+  return names[pc]+'/'+oct;
+}
+
+/* ============================================================
+   METRÓNOMO
+   - PULSE_MAP: relleno por renderAll con la posición de cada pulso.
+   - BPM por defecto 45, referido al PULSO (negra/negra c.puntillo/blanca según métrica).
+   - clic en cada pulso, con acento en el 1º del compás; resaltado visual que avanza por pulso.
+   ============================================================ */
+let PULSE_MAP=[];
+let RHYTHM_MAP=[];
+let PULSE_CLOCK=0;
+let metroOn=false, metroBpm=45, metroIdx=0, metroTimer=null, audioCtx=null;
+let withRhythm=false;   // si true, además del clic de pulso suena el ritmo escrito
+
+function setBpm(v){ metroBpm=Math.max(20,Math.min(160, parseInt(v,10)||45)); if(metroOn){ const wr=withRhythm; stopMetro(); startMetro(wr); } }
+
+function clickSound(accent){
+  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const t=audioCtx.currentTime;
+  const osc=audioCtx.createOscillator();
+  const gain=audioCtx.createGain();
+  osc.frequency.value = accent? 1500 : 900;   // acento más agudo
+  gain.gain.setValueAtTime(accent?0.5:0.3, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t+0.05);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t+0.06);
+}
+
+// sonido del ritmo escrito: sutil, neutro y mate (seno suave con paso-bajo, sin brillo ni chasquido)
+function woodSound(at){
+  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const t = at!=null? at : audioCtx.currentTime;
+  const osc=audioCtx.createOscillator(), g=audioCtx.createGain();
+  const lp=audioCtx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=900; // quita brillo -> mate
+  osc.type='sine'; osc.frequency.value=480;          // tono medio, neutro
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.32, t+0.01);  // ataque suave
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.12);// caída corta pero no seca
+  osc.connect(lp); lp.connect(g); g.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t+0.13);
+}
+
+// offset real del SVG dentro de #scoreWrap (VexFlow puede dejar margen); se mide al resaltar
+function svgOffset(){
+  const wrap=document.getElementById('scoreWrap');
+  const svg=document.querySelector('#score svg');
+  if(!wrap||!svg) return {dx:0,dy:0};
+  const wr=wrap.getBoundingClientRect(), sr=svg.getBoundingClientRect();
+  return {dx: sr.left-wr.left, dy: sr.top-wr.top};
+}
+
+// resalta el COMPÁS al que pertenece el pulso idx (guía visual robusta: encaja en el compás)
+function highlightMeasure(idx){
+  const hl=document.getElementById('pulseHL');
+  if(!PULSE_MAP.length || idx<0 || idx>=PULSE_MAP.length){ hl.style.display='none'; return; }
+  const p=PULSE_MAP[idx];
+  const off=svgOffset();
+  hl.style.display='block';
+  hl.classList.toggle('accent', !!p.accent);
+  hl.style.left=(p.measX+off.dx)+'px';
+  hl.style.top=(p.y+off.dy)+'px';
+  hl.style.width=p.measW+'px';
+  hl.style.height=p.h+'px';
+}
+
+function metroTick(){
+  if(!PULSE_MAP.length){ stopMetro(); return; }
+  const p=PULSE_MAP[metroIdx];
+  clickSound(p.accent);
+  highlightMeasure(metroIdx);          // resalta el compás actual
+  // si está activada la reproducción del ritmo: programar los golpes de las figuras que caen
+  // en el intervalo [metroIdx, metroIdx+1) pulsos, en su momento exacto dentro del pulso.
+  if(withRhythm && audioCtx){
+    const spb = 60/metroBpm;           // segundos por pulso
+    const now = audioCtx.currentTime;
+    RHYTHM_MAP.forEach(r=>{
+      const frac = r.atPulse - metroIdx;       // posición de la figura respecto al pulso actual
+      if(frac>=-0.001 && frac<0.999){
+        woodSound(now + frac*spb);
+      }
+    });
+  }
+  metroIdx++;
+  if(metroIdx>=PULSE_MAP.length){
+    // fin del ejercicio: dejar sonar el último pulso y parar (sin repetir en bucle)
+    metroTimer=setTimeout(stopMetro, 60000/metroBpm);
+    return;
+  }
+  metroTimer=setTimeout(metroTick, 60000/metroBpm);
+}
+
+// cuenta atrás (1 compás de pulsos) antes de arrancar, para que el alumno entre a tiempo
+function countIn(done){
+  const firstTs = PULSE_MAP.length? PULSE_MAP[0].ts : '2/4';
+  const beats = pulsesPerMeasure(firstTs);   // pulsos de cuenta atrás = los del 1er compás
+  const overlay=document.getElementById('countIn');
+  let n=beats;
+  const step=()=>{
+    if(!metroOn){ overlay.style.display='none'; return; }
+    if(n<=0){ overlay.style.display='none'; done(); return; }
+    overlay.style.display='flex';
+    overlay.textContent=n;
+    clickSound(n===beats);   // acento en el primer golpe de la cuenta
+    n--;
+    setTimeout(step, 60000/metroBpm);
+  };
+  step();
+}
+
+function startMetro(rhythm){
+  if(!PULSE_MAP.length) return;
+  metroOn=true; metroIdx=0; withRhythm=!!rhythm;
+  const sb=document.getElementById('startBtn'); if(sb){ sb.textContent='■ Parar'; sb.classList.add('on'); }
+  if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  countIn(()=>{ if(metroOn) metroTick(); });   // primero cuenta atrás, luego el ejercicio
+}
+function stopMetro(){
+  metroOn=false; withRhythm=false;
+  if(metroTimer){ clearTimeout(metroTimer); metroTimer=null; }
+  const sb=document.getElementById('startBtn'); if(sb){ sb.textContent='▶ Empezar'; sb.classList.remove('on'); }
+  document.getElementById('pulseHL').style.display='none';
+  const ci=document.getElementById('countIn'); if(ci) ci.style.display='none';
+}
+// "Empezar": arranca metrónomo. Si el selector de Ayuda rítmica está marcado, también suena el ritmo.
+function toggleMetro(){
+  if(metroOn){ stopMetro(); return; }
+  const chk=document.getElementById('rhythmChk');
+  startMetro(chk && chk.checked);
+}
+
+// AYUDA RÍTMICA (selector): al MARCARLO salta el aviso; si se cancela, se desmarca.
+// Desmarcar no avisa. No arranca nada por sí solo; el ritmo suena al pulsar "Empezar".
+function onRhythmToggle(chk){
+  if(chk.checked){ document.getElementById('rhythmModal').classList.add('show'); }
+}
+function closeRhythmModal(){
+  document.getElementById('rhythmModal').classList.remove('show');
+  const chk=document.getElementById('rhythmChk'); if(chk) chk.checked=false;   // cancelar = desmarcar
+}
+function confirmRhythmHelp(){
+  document.getElementById('rhythmModal').classList.remove('show');
+  // aceptar = arrancar ya con ritmo (equivale a pulsar Empezar)
+  if(metroOn) stopMetro();
+  startMetro(true);
+}
+// "Generar ejercicio nuevo": genera otro y resetea la ayuda rítmica (desmarca + para si sonaba)
+function nuevoEjercicio(){
+  if(metroOn) stopMetro();
+  const chk=document.getElementById('rhythmChk'); if(chk) chk.checked=false;
+  if(window.sim_regen) window.sim_regen();
+}
+
+regen();
+
+window.RS = window.RS || {};
+window.sim_regen = regen;
+window.toggleMetro = toggleMetro;
+window.onRhythmToggle = onRhythmToggle;
+window.nuevoEjercicio = nuevoEjercicio;
+window.closeRhythmModal = closeRhythmModal;
+window.confirmRhythmHelp = confirmRhythmHelp;
+window.setBpm = setBpm;
+window.RS.onCatalogChange = function(){ /* fase B: re-leer pool. por ahora regen manual */ };
+
+})();
+</script>
+</body>
+</html>
