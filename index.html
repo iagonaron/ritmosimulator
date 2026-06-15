@@ -3,25 +3,32 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ritmo Simulator · CMUS</title>
+<title>ACCESO RÍTMICO at home</title>
 <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.3/build/cjs/vexflow.js"></script>
 <style>
-/* ====== base (del catálogo, con los 4 niveles) ====== */
+/* ====== base — estética "LM at home" (by Iago González Alonso) ====== */
 
   :root{
-    --bg:#0a0e16; --ink:#eef2f8; --muted:#8a97ad; --accent:#3b82f6;
-    --line:rgba(255,255,255,0.12); --paper:#ffffff; --on:#1f9d55; --off:#5a667a;
-    --bas:#22d3ee; --rec:#3b82f6; --oca:#d4af37; --pun:#a855f7;
+    --bg:#0a1028; --panel:#0d142e; --panel2:#111b3d; --line:#1e2a52;
+    --ink:#e9edff; --muted:#8b97c4; --muted2:#5e6a98; --paper:#f3f5ff;
+    --green:#22c98a; --green-soft:rgba(34,201,138,.18);
+    --red:#ff5c72; --red-soft:rgba(255,92,114,.18);
+    /* UI sin color: acento neutro gris-azulado (guía B6) */
+    --accent:#2a3a66; --accent2:#3a4f86; --accent-soft:rgba(124,140,184,0.14);
+    --on:#22c98a; --off:#5e6a98;
+    /* cuenta atrás */
+    --cd:#e9edff; --cd-soft:rgba(6,10,24,0.55);
+    /* niveles de frecuencia del catálogo (se conservan los roles) */
+    --bas:#22d3ee; --rec:#5b9dff; --oca:#e0b341; --pun:#c07be0;
   }
   *{box-sizing:border-box}
-  html{background:#0a0e16;}
+  html{background:#02030a;}
   body{
-    margin:0; color:var(--ink); padding:20px 26px;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:
-      radial-gradient(1200px 620px at 72% -12%, rgba(46,86,160,0.9), transparent 62%),
-      radial-gradient(950px 540px at 8% 112%, rgba(30,60,120,0.85), transparent 58%),
-      linear-gradient(160deg, #102449 0%, #0c1730 50%, #070d1e 100%);
+    margin:0; color:var(--ink); padding:12px 26px 26px;
+    font-family:"Helvetica Neue",Arial,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+    background:linear-gradient(180deg, #0b1f4d 0%, #0a1430 32%, #060a18 70%, #02030a 100%);
+    background-attachment:fixed;
     min-height:100vh;
   }
   h1{font-size:24px; font-weight:800; margin:0 0 4px;}
@@ -82,9 +89,9 @@
   .freq button.sel.pun{background:var(--pun); color:#fff; border-color:var(--pun);}
   .fb{display:flex; gap:6px; margin-top:2px;}
   .fb button{flex:1; border:1px solid var(--line); background:rgba(255,255,255,0.04); color:var(--muted); padding:6px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;}
-  .fb button.mal.sel{background:#c0392b; color:#fff; border-color:#c0392b;}
+  .fb button.mal.sel{background:var(--red); color:#fff; border-color:var(--red);}
   .fb button.quitar.sel{background:#8a6d1f; color:#fff; border-color:#8a6d1f;}
-  .badge-var{font-size:10px; font-weight:700; color:#9cc4ff; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.4); padding:2px 7px; border-radius:6px; white-space:nowrap;}
+  .badge-var{font-size:10px; font-weight:700; color:var(--rec); background:rgba(91,157,255,.15); border:1px solid rgba(91,157,255,.4); padding:2px 7px; border-radius:6px; white-space:nowrap;}
   .cell{cursor:grab;}
   .cell.dragging{opacity:0.45;}
   .cell.dragover{outline:2px dashed var(--accent); outline-offset:2px;}
@@ -99,8 +106,8 @@
   #out textarea{width:100%; height:340px; background:#06101f; color:#cfe; border:1px solid var(--line); border-radius:10px; padding:12px; font-family:ui-monospace,monospace; font-size:12px;}
   #out .row{display:flex; gap:10px; margin-top:12px;}
   /* === unificación variaciones === */
-  .vartoggle{font-size:11px; font-weight:700; color:#9cc4ff; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.4); padding:3px 9px; border-radius:7px; cursor:pointer; white-space:nowrap;}
-  .vartoggle:hover{background:rgba(59,130,246,0.28);}
+  .vartoggle{font-size:11px; font-weight:700; color:var(--rec); background:rgba(91,157,255,.15); border:1px solid rgba(91,157,255,.4); padding:3px 9px; border-radius:7px; cursor:pointer; white-space:nowrap;}
+  .vartoggle:hover{background:rgba(91,157,255,.28);}
   .varwrap{display:flex; flex-direction:column; gap:8px; margin-top:4px; border-top:1px dashed var(--line); padding-top:10px;}
   .varitem{background:rgba(255,255,255,0.03); border:1px solid var(--line); border-radius:11px; padding:10px; display:flex; flex-direction:column; gap:8px;}
   .varitem.isrep{border-color:#facc15; background:rgba(250,204,21,0.06);}
@@ -131,29 +138,68 @@
   
   
   
-  header{display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:10px;}
+  /* ---------- topinfo: autoría + aviso, fila propia arriba derecha ---------- */
+  .topinfo{display:flex; justify-content:flex-end; align-items:baseline; gap:7px; margin:0 0 6px; line-height:1;}
+  .topinfo-by{font-size:11.5px; letter-spacing:.03em; color:var(--muted2);}
+  .topinfo-sep{font-size:11px; color:var(--muted2);}
+  .topinfo-opt{font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted2);}
+
+  header{display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:nowrap; margin-bottom:4px;}
   h1{font-size:24px; font-weight:800; margin:0; color:#fff;}
-  .meta-inline{color:var(--muted); font-size:13px; margin:0 0 10px;}
-  .controls{display:flex; flex-direction:row; gap:14px; align-items:center; flex-wrap:wrap; justify-content:flex-end;}
-  .actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
-  /* botones al mismo tamaño que las pestañas del nav */
-  .controls button{border:0; background:var(--accent); color:#fff; padding:11px 22px; border-radius:11px; cursor:pointer; font-size:15px; font-weight:700;}
-  .controls button.big{font-size:15px; font-weight:700; padding:11px 22px; border-radius:11px;}
-  .controls button.primary{background:#1f9d55;}              /* Empezar: verde */
-  .controls button.primary.on{background:#c0392b;}           /* sonando: rojo (Parar) */
-  .controls button.help{background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink); font-weight:700;}
-  .controls button.help.on{background:#c0392b; color:#fff; border-color:#c0392b;}
-  .rhythm-toggle{display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink); padding:11px 18px; border-radius:11px; font-size:15px; font-weight:700; cursor:pointer; user-select:none;}
-  .rhythm-toggle input{width:16px; height:16px; accent-color:#1f9d55; cursor:pointer;}
-  .rhythm-toggle:has(input:checked){background:rgba(31,157,85,0.18); border-color:#1f9d55;}
-  .metropanel{border:1px solid var(--line); border-radius:12px; padding:8px 14px; background:rgba(0,0,0,0.2);}
-  .metropanel-title{color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; margin-bottom:5px;}
-  .meta{color:var(--muted); font-size:13px; margin-bottom:10px;}
-  #score{background:var(--paper); border-radius:14px; padding:14px 10px; box-shadow:0 10px 40px rgba(0,0,0,0.4);}
+  .hint{color:var(--muted); font-size:12px; margin:2px 0 8px;}
+  .controls{display:flex; align-items:center; gap:8px;}
+
+  /* ---------- transport: tempo -/+, play, dado, ayuda (todo neutro) ---------- */
+  .transport{display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end;}
+  .tbtn{width:30px; height:30px; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.03);
+    color:var(--ink); font-size:18px; font-weight:800; line-height:1; cursor:pointer; display:grid; place-items:center;
+    transition:border-color .15s, background .15s;}
+  .tbtn:hover{border-color:var(--muted2); background:rgba(255,255,255,.06);}
+  .tbtn:disabled{opacity:.35; cursor:not-allowed;}
+  .tempo{font-size:14px; color:var(--muted); white-space:nowrap;}
+  .tempo b{color:var(--ink); font-size:16px; font-variant-numeric:tabular-nums;}
+
+  /* botón play semitransparente con parpadeo al pulso (guía B3) */
+  .transport .play{border:1px solid rgba(233,237,255,.45); background:rgba(233,237,255,.16); color:#e9edff;
+    border-radius:50%; width:56px; height:56px; flex:0 0 56px; cursor:pointer; display:grid; place-items:center;
+    transition:background .15s,transform .05s,box-shadow .15s; padding:0; box-shadow:0 4px 18px rgba(0,0,0,.4);}
+  .transport .play:hover{background:rgba(233,237,255,.28); box-shadow:0 6px 22px rgba(0,0,0,.5);}
+  .transport .play:active{transform:scale(.94);}
+  .transport .play svg{width:24px; height:24px; fill:#e9edff; display:block;}
+  .transport .play svg rect{fill:#e9edff;}
+  .transport .play.playing{animation:playPulse var(--pulse-ms,1500ms) ease-in-out infinite;}
+  @keyframes playPulse{
+    0%{background:rgba(233,237,255,.42); box-shadow:0 0 0 0 rgba(233,237,255,.22);}
+    18%{background:rgba(233,237,255,.16); box-shadow:0 0 0 7px rgba(233,237,255,0);}
+    100%{background:rgba(233,237,255,.16); box-shadow:0 0 0 0 rgba(233,237,255,0);}
+  }
+
+  /* botón dado (guía B4) */
+  .gen{display:flex; align-items:center; gap:9px; margin-left:6px;}
+  .gen .dice-btn{border:1px solid rgba(233,237,255,.40); background:rgba(233,237,255,.12); color:#e9edff;
+    border-radius:50%; width:46px; height:46px; flex:0 0 46px; cursor:pointer; display:grid; place-items:center;
+    padding:0; transition:background .15s,transform .05s;}
+  .gen .dice-btn:hover{background:rgba(233,237,255,.24);}
+  .gen .dice-btn:active{transform:rotate(-18deg) scale(.94);}
+  .gen .dice-btn svg{width:24px; height:24px; display:block;}
+  .gen .dice-label{font-size:12px; color:var(--muted); white-space:nowrap; max-width:74px; line-height:1.1;}
+
+  /* Ayuda rítmica: selector neutro integrado */
+  .rhythm-toggle{display:inline-flex; align-items:center; gap:8px; background:rgba(233,237,255,.06); border:1px solid var(--line); color:var(--muted); padding:9px 14px; border-radius:11px; font-size:13px; font-weight:600; cursor:pointer; user-select:none; margin-left:4px;}
+  .rhythm-toggle input{width:15px; height:15px; accent-color:var(--muted2); cursor:pointer;}
+  .rhythm-toggle:has(input:checked){background:rgba(233,237,255,.12); border-color:var(--muted2); color:var(--ink);}
+
+  #score{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:8px 8px 12px; overflow:hidden; box-shadow:0 8px 40px rgba(0,0,0,0.35);}
   #score svg{display:block; margin:0 auto;}
   .err{color:#ffb4b4; font-size:13px; white-space:pre-wrap;}
-  .bpmlbl{color:var(--ink); font-size:13px; display:inline-flex; align-items:center; gap:8px; font-weight:600;}
-  .bpmlbl input{width:64px; background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:6px 8px; font-size:14px; font-weight:700; text-align:center;}
+
+  /* cuenta atrás 3·2·1 a pantalla completa (guía B2) */
+  #countdown{position:fixed; inset:0; z-index:80; display:none; align-items:center; justify-content:center;
+    pointer-events:none; background:var(--cd-soft); transition:background .3s;}
+  #countdown.on{display:flex;}
+  #countdown span{font-size:min(42vw,360px); font-weight:900; letter-spacing:-.04em; color:var(--cd);
+    text-shadow:0 6px 50px rgba(0,0,0,.45); font-variant-numeric:tabular-nums; line-height:1;}
+
   /* modal de ayuda rítmica */
   .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100; display:none; align-items:center; justify-content:center; padding:20px;}
   .modal-bg.show{display:flex;}
@@ -162,64 +208,82 @@
   .modal p{color:var(--ink); font-size:14px; line-height:1.55; margin:0 0 12px;}
   .modal-row{display:flex; gap:10px; justify-content:flex-end; margin-top:18px;}
   .modal-row button{border:0; padding:11px 18px; border-radius:10px; cursor:pointer; font-size:14px; font-weight:700;}
-  .modal-row button.primary{background:#1f9d55; color:#fff;}
+  .modal-row button.primary{background:var(--accent2); color:#fff;}
   .modal-row button.ghost{background:rgba(255,255,255,0.08); border:1px solid var(--line); color:var(--ink);}
   #pulseHL{position:absolute; top:0; left:0; pointer-events:none; z-index:5;
-    background:rgba(59,130,246,0.18); border-radius:6px; display:none;
+    background:rgba(124,140,184,0.18); border-radius:6px; display:none;
     transition:left .05s linear, top .05s linear, width .05s linear;}
-  #pulseHL.accent{background:rgba(34,211,238,0.30);}
-  #countIn{position:absolute; inset:0; z-index:10; display:none;
-    align-items:center; justify-content:center; pointer-events:none;
-    font-size:120px; font-weight:800; color:var(--accent);
-    text-shadow:0 2px 20px rgba(0,0,0,0.5);}
+  #pulseHL.accent{background:rgba(124,140,184,0.30);}
 
-/* ====== navegación de la app ====== */
-  .appnav{display:flex; gap:8px; background:rgba(0,0,0,0.35); border:1px solid var(--line); border-radius:14px; padding:5px; width:fit-content; margin:0;}
-  .appnav button{border:0; background:transparent; color:var(--muted); padding:11px 22px; border-radius:11px; cursor:pointer; font-size:15px; font-weight:700;}
-  .appnav button.active{background:var(--accent); color:#fff;}
+  /* nav inferior: Edición / Mantenimiento */
+  .bottomnav{display:flex; gap:10px; justify-content:center; margin:22px 0 6px;}
+  .bottomnav button{border:1px solid var(--line); background:rgba(233,237,255,.05); color:var(--muted);
+    padding:10px 22px; border-radius:11px; cursor:pointer; font-size:14px; font-weight:700; transition:border-color .15s,color .15s,background .15s;}
+  .bottomnav button:hover{border-color:var(--muted2); color:var(--ink); background:rgba(233,237,255,.1);}
+  .backbtn{border:1px solid var(--line); background:transparent; color:var(--muted); padding:8px 16px; border-radius:999px; cursor:pointer; font-size:13px; font-weight:600; margin-bottom:14px;}
+  .backbtn:hover{color:var(--ink); border-color:var(--muted2);}
+  .maint-placeholder{margin-top:24px; padding:40px; border:1px dashed var(--line); border-radius:14px; color:var(--muted2); text-align:center;}
+
   .view{display:none;}
   .view.active{display:block;}
-  /* franja superior: banda con degradado propio, contenido centrado y aireado */
-  .apphead{ text-align:center; padding:18px 20px 14px; margin:-20px -26px 16px;
-    background:linear-gradient(180deg, rgba(34,72,150,0.55), rgba(12,23,48,0) 100%);
-    border-bottom:1px solid rgba(255,255,255,0.06); }
-  .applogo{font-size:44px; font-weight:800; color:#fff; margin:0; line-height:1.0; letter-spacing:-0.5px;}
-  .applogo span{color:#22d3ee;}
-  .appsub{color:#9fb4d8; font-size:13px; font-weight:600; margin-top:4px; letter-spacing:.02em;}
+  /* ---------- CABECERA marca "LM at home" ---------- */
+  .home2,.ath{font-style:italic;font-family:Georgia,'Times New Roman',serif;font-weight:500;color:#aeb6d6;transform:rotate(-3deg);display:inline-block}
+  .header-bar{position:relative; margin-bottom:4px;}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .brand h1{font-size:30px;font-weight:800;margin:0;letter-spacing:-.6px;line-height:1.1}
+  .brand .lm{color:var(--ink);font-weight:900}
+  .brand .eav{color:var(--muted2);font-weight:300}
+  .brand .home2{font-size:.62em}
+  .brand-sub{font-size:13px;color:var(--muted2);margin-top:2px;letter-spacing:.01em}
+  /* nombre de app: centrado, en flujo (guía B5) */
+  .appname-top{text-align:center; margin-top:2px;}
+  .appname-top h2{display:inline-block;margin:0;font-size:38px;font-weight:900;letter-spacing:-.01em;line-height:1}
+  .appname-top .pre{color:var(--ink);font-weight:900}            /* ACCESO negrita */
+  .appname-top .post{color:var(--ink);font-weight:300;opacity:.6} /* RÍTMICO fino */
+  .appname-top .home2{font-size:.5em}
+  @media (max-width:1100px){ .appname-top h2{font-size:32px;} }
 </style>
 </head>
 <body>
-  <div class="apphead">
-    <div class="applogo">Ritmo <span>Simulator</span></div>
-    <div class="appsub">CMUS A Coruña · Profesor: Iago González · Curso: 4ºGE</div>
+  <div id="countdown"><span id="countdownNum"></span></div>
+
+  <div class="topinfo">
+    <span class="topinfo-by">by Iago González Alonso</span>
+    <span class="topinfo-sep">·</span>
+    <span class="topinfo-opt">Optimizado para ordenador y tablet</span>
+  </div>
+
+  <div class="header-bar">
+    <header class="top">
+      <div class="brand">
+        <h1><span class="lm">LM</span><span class="eav">EAV</span> <span class="home2">at home</span></h1>
+        <div class="brand-sub">Recursos interactivos LM y EAV desde tu casa</div>
+      </div>
+      <div class="controls">
+        <div class="transport" id="transport">
+          <button class="tbtn" id="bpmDown" title="Más lento" onclick="bumpBpm(-5)">−</button>
+          <span class="tempo"><b id="bpmVal">45</b> bpm</span>
+          <button class="tbtn" id="bpmUp" title="Más rápido" onclick="bumpBpm(5)">+</button>
+          <button id="startBtn" class="play" title="Tocar" onclick="toggleMetro()"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
+          <div class="gen" id="genzone">
+            <button class="dice-btn" title="Nuevo ejercicio" onclick="nuevoEjercicio()"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="16" cy="8" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="8" cy="16" r="1.6" fill="currentColor"/><circle cx="16" cy="16" r="1.6" fill="currentColor"/></svg></button>
+            <span class="dice-label">Nuevo ejercicio</span>
+          </div>
+          <label class="rhythm-toggle"><input type="checkbox" id="rhythmChk" onchange="onRhythmToggle(this)"> Ayuda rítmica</label>
+        </div>
+      </div>
+    </header>
+    <div class="appname-top">
+      <h2><span class="pre">ACCESO</span> <span class="post">RÍTMICO</span> <span class="home2">at home</span></h2>
+    </div>
   </div>
 
   <!-- ======= VISTA GENERADOR ======= -->
   <div id="view-gen" class="view active">
 
-  <header>
-    <div class="appnav">
-      <button id="nav-gen" class="active" onclick="showView('gen')">Generador</button>
-      <button id="nav-cat" onclick="showView('cat')">Catálogo de ritmos</button>
-    </div>
-    <div class="controls">
-      <div class="actions">
-        <button id="startBtn" class="big primary" onclick="toggleMetro()">▶ Empezar</button>
-        <label class="rhythm-toggle"><input type="checkbox" id="rhythmChk" onchange="onRhythmToggle(this)"> 🛟 Ayuda rítmica</label>
-        <button class="big" onclick="nuevoEjercicio()">Generar ejercicio nuevo</button>
-      </div>
-      <div class="metropanel">
-        <div class="metropanel-title">Ajustes del metrónomo</div>
-        <label class="bpmlbl">Pulso/min
-          <input id="bpm" type="number" min="20" max="160" value="45" onchange="setBpm(this.value)">
-        </label>
-      </div>
-    </div>
-  </header>
-  <div class="meta-inline" id="meta"></div>
+  <div class="hint" id="meta"></div>
   <div id="scoreWrap" style="position:relative;">
     <div id="pulseHL"></div>
-    <div id="countIn"></div>
     <div id="score"></div>
   </div>
 
@@ -236,16 +300,17 @@
     </div>
   </div>
 
+  <div class="bottomnav">
+    <button onclick="showView('cat')">✎ Edición</button>
+    <button onclick="openMaint()">🔒 Mantenimiento</button>
+  </div>
 
   </div>
 
-  <!-- ======= VISTA CATÁLOGO ======= -->
+  <!-- ======= VISTA CATÁLOGO (Edición) ======= -->
   <div id="view-cat" class="view">
 
-  <div class="appnav" style="margin-bottom:16px">
-    <button class="" onclick="showView('gen')">Generador</button>
-    <button class="active" onclick="showView('cat')">Catálogo de ritmos</button>
-  </div>
+  <button class="backbtn" onclick="showView('gen')">← Volver</button>
 
   <h1>Catálogo de ritmos</h1>
   <div class="sub">Elige qué <b>compases</b> y <b>células rítmicas</b> pueden aparecer en los ejercicios.</div>
@@ -255,7 +320,7 @@
     <span><i class="dot" style="background:var(--rec)"></i>Recurrente · sin límite</span>
     <span><i class="dot" style="background:var(--oca)"></i>Ocasional · máx. 2/sistema</span>
     <span><i class="dot" style="background:var(--pun)"></i>Puntual · 1/sistema</span>
-    <span><i class="dot" style="background:#9cc4ff"></i>✦ variaciones · grupo desplegable</span>
+    <span><i class="dot" style="background:var(--rec)"></i>✦ variaciones · grupo desplegable</span>
   </div>
 
   <div class="bar" id="cellBar">
@@ -279,18 +344,30 @@
 
   </div>
 
+  <!-- ======= VISTA MANTENIMIENTO (protegida) ======= -->
+  <div id="view-maint" class="view">
+    <button class="backbtn" onclick="showView('gen')">← Volver</button>
+    <h1>Mantenimiento</h1>
+    <div class="sub">Zona reservada. Aquí irán las opciones de administración (por definir).</div>
+    <div class="maint-placeholder">Contenido de mantenimiento pendiente de definir.</div>
+  </div>
+
 <script>
 const VF = Vex.Flow;
 function showView(v){
   document.getElementById('view-gen').classList.toggle('active', v==='gen');
   document.getElementById('view-cat').classList.toggle('active', v==='cat');
-  // sincronizar el estado activo de TODOS los navs (generador y catálogo)
-  document.querySelectorAll('.appnav').forEach(nav=>{
-    const btns=nav.querySelectorAll('button');
-    if(btns[0]) btns[0].classList.toggle('active', v==='gen');
-    if(btns[1]) btns[1].classList.toggle('active', v==='cat');
-  });
+  const vm=document.getElementById('view-maint'); if(vm) vm.classList.toggle('active', v==='maint');
+  window.scrollTo(0,0);
 }
+// Mantenimiento protegido por contraseña
+function openMaint(){
+  const pass=prompt('Contraseña de mantenimiento:');
+  if(pass===null) return;            // canceló
+  if(pass==='010513'){ showView('maint'); }
+  else { alert('Contraseña incorrecta.'); }
+}
+window.openMaint=openMaint;
 </script>
 
 <!-- módulo catálogo (encapsulado) -->
@@ -620,7 +697,7 @@ function renderVarItem(c, v){
   // controles: validar/mal, quitar, editar notas, borrar variación
   const ctl=document.createElement('div'); ctl.className='varctl';
   const bMal=document.createElement('button'); bMal.className='vedit'+(v.mal?' ':''); bMal.textContent=v.mal?'✗ marcada MAL':'✗ Está mal';
-  if(v.mal) bMal.style.cssText='color:#fff;background:#c0392b;border-color:#c0392b;';
+  if(v.mal) bMal.style.cssText='color:#fff;background:var(--red);border-color:var(--red);';
   bMal.onclick=()=>{ v.mal=!v.mal; build(); };
   const bQ=document.createElement('button'); bQ.className='vedit'; bQ.textContent=v.quitar?'🗑 marcada QUITAR':'🗑 Quitar';
   if(v.quitar) bQ.style.cssText='color:#fff;background:#8a6d1f;border-color:#8a6d1f;';
@@ -2071,44 +2148,67 @@ function metroTick(){
   metroTimer=setTimeout(metroTick, 60000/metroBpm);
 }
 
-// cuenta atrás (1 compás de pulsos) antes de arrancar, para que el alumno entre a tiempo
+// cuenta atrás 3·2·1 a pantalla completa (cortina translúcida) con claqueta al pulso + subdivisiones
+function clearCountdownOverlay(){
+  const cd=document.getElementById('countdown');
+  if(cd){ cd.classList.remove('on'); const n=document.getElementById('countdownNum'); if(n)n.textContent=''; }
+}
 function countIn(done){
+  const cd=document.getElementById('countdown');
+  const cdNum=document.getElementById('countdownNum');
   const firstTs = PULSE_MAP.length? PULSE_MAP[0].ts : '2/4';
-  const beats = pulsesPerMeasure(firstTs);   // pulsos de cuenta atrás = los del 1er compás
-  const overlay=document.getElementById('countIn');
-  let n=beats;
+  const pulseMs = 60000/metroBpm;
+  // subdivisiones de la claqueta según el tipo de pulso (ternario = 3 subdivisiones, binario = 2)
+  const tern = (firstTs==='3/8'||firstTs==='6/8'||firstTs==='9/8');
+  const subN = tern?3:2; const subMs=pulseMs/subN;
+  if(cd) cd.classList.add('on');
+  let n=3;
   const step=()=>{
-    if(!metroOn){ overlay.style.display='none'; return; }
-    if(n<=0){ overlay.style.display='none'; done(); return; }
-    overlay.style.display='flex';
-    overlay.textContent=n;
-    clickSound(n===beats);   // acento en el primer golpe de la cuenta
+    if(!metroOn){ clearCountdownOverlay(); return; }
+    if(cdNum) cdNum.textContent=String(n);
+    clickSound(true);                                  // golpe de pulso (acento)
+    for(let k=1;k<subN;k++){ setTimeout(()=>{ if(metroOn) clickSound(false); }, k*subMs); }
     n--;
-    setTimeout(step, 60000/metroBpm);
+    if(n>0){ metroTimer=setTimeout(step, pulseMs); }
+    else { metroTimer=setTimeout(()=>{ clearCountdownOverlay(); if(metroOn) done(); }, pulseMs); }
   };
   step();
 }
 
+const SVG_PLAY='<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+const SVG_PAUSE='<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14"></rect><rect x="14" y="5" width="4" height="14"></rect></svg>';
+
 function startMetro(rhythm){
   if(!PULSE_MAP.length) return;
   metroOn=true; metroIdx=0; withRhythm=!!rhythm;
-  const sb=document.getElementById('startBtn'); if(sb){ sb.textContent='■ Parar'; sb.classList.add('on'); }
+  const sb=document.getElementById('startBtn');
+  if(sb){ sb.innerHTML=SVG_PAUSE; sb.classList.add('playing'); sb.title='Parar';
+    sb.style.setProperty('--pulse-ms',(60000/metroBpm)+'ms'); }  // parpadeo sincronizado al tempo
   if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
   if(audioCtx.state==='suspended') audioCtx.resume();
-  countIn(()=>{ if(metroOn) metroTick(); });   // primero cuenta atrás, luego el ejercicio
+  countIn(()=>{ if(metroOn) metroTick(); });   // cuenta atrás 3·2·1, luego el ejercicio
 }
 function stopMetro(){
   metroOn=false; withRhythm=false;
   if(metroTimer){ clearTimeout(metroTimer); metroTimer=null; }
-  const sb=document.getElementById('startBtn'); if(sb){ sb.textContent='▶ Empezar'; sb.classList.remove('on'); }
+  const sb=document.getElementById('startBtn');
+  if(sb){ sb.innerHTML=SVG_PLAY; sb.classList.remove('playing'); sb.title='Tocar'; sb.style.removeProperty('--pulse-ms'); }
   document.getElementById('pulseHL').style.display='none';
-  const ci=document.getElementById('countIn'); if(ci) ci.style.display='none';
+  clearCountdownOverlay();
 }
 // "Empezar": arranca metrónomo. Si el selector de Ayuda rítmica está marcado, también suena el ritmo.
 function toggleMetro(){
   if(metroOn){ stopMetro(); return; }
   const chk=document.getElementById('rhythmChk');
   startMetro(chk && chk.checked);
+}
+// ajuste de tempo con los botones -/+ (pasos de 5, límites 20-160)
+function bumpBpm(delta){
+  metroBpm=Math.max(20,Math.min(160, (metroBpm||45)+delta));
+  const v=document.getElementById('bpmVal'); if(v) v.textContent=metroBpm;
+  document.getElementById('bpmDown').disabled = metroBpm<=20;
+  document.getElementById('bpmUp').disabled = metroBpm>=160;
+  if(metroOn){ const wr=withRhythm; stopMetro(); startMetro(wr); }
 }
 
 // AYUDA RÍTMICA (selector): al MARCARLO salta el aviso; si se cancela, se desmarca.
@@ -2143,6 +2243,7 @@ window.nuevoEjercicio = nuevoEjercicio;
 window.closeRhythmModal = closeRhythmModal;
 window.confirmRhythmHelp = confirmRhythmHelp;
 window.setBpm = setBpm;
+window.bumpBpm = bumpBpm;
 window.RS.onCatalogChange = function(){ /* fase B: re-leer pool. por ahora regen manual */ };
 
 })();
