@@ -231,6 +231,8 @@
   .header-bar{position:relative; margin-bottom:4px;}
   .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
   .brand h1{font-size:30px;font-weight:800;margin:0;letter-spacing:-.6px;line-height:1.1}
+  .brand-link{text-decoration:none; display:inline-block; transition:opacity .15s;}
+  .brand-link:hover{opacity:.82;}
   .brand .lm{color:var(--ink);font-weight:900}
   .brand .eav{color:var(--muted2);font-weight:300}
   .brand .home2{font-size:.62em}
@@ -256,7 +258,9 @@
   <div class="header-bar">
     <header class="top">
       <div class="brand">
-        <h1><span class="lm">LM</span><span class="eav">EAV</span> <span class="home2">at home</span></h1>
+        <a class="brand-link" href="https://iagonaron.github.io/LMEAVathome/" title="Ir a LMEAV at home">
+          <h1><span class="lm">LM</span><span class="eav">EAV</span> <span class="home2">at home</span></h1>
+        </a>
         <div class="brand-sub">Recursos interactivos LM y EAV desde tu casa</div>
       </div>
       <div class="controls">
@@ -1443,15 +1447,23 @@ function getSeqPulses(seq){ return seq.reduce((a,c)=>a+cellPulses(c),0); }
 const KEYS=[
   {name:'Do M',tonic:60,sf:0}, {name:'Sol M',tonic:67,sf:1}, {name:'Re M',tonic:62,sf:2},
   {name:'Fa M',tonic:65,sf:-1}, {name:'Sib M',tonic:58,sf:-2},
-  {name:'La m',tonic:57,sf:0}, {name:'Mi m',tonic:64,sf:1}, {name:'Si m',tonic:59,sf:2},
-  {name:'Re m',tonic:62,sf:-1}, {name:'Sol m',tonic:55,sf:-2},
+  {name:'La m',tonic:57,sf:0,minor:true}, {name:'Mi m',tonic:64,sf:1,minor:true}, {name:'Si m',tonic:59,sf:2,minor:true},
+  {name:'Re m',tonic:62,sf:-1,minor:true}, {name:'Sol m',tonic:55,sf:-2,minor:true},
 ];
 function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNote){
   // durs: duración (semis) de cada nota real. pulseStart[i]: ¿la nota i inicia un pulso?
   // startMidi: nota previa (del compás anterior). prevDur: su duración. ms: estado melódico persistente.
   // seedNote: si se da, es la 1ª nota fija del sistema (tónica/3ª/5ª del acorde).
-  const lo = clef==='bass'?40:57, hi = clef==='bass'?64:79;
-  const comfLo = lo+4, comfHi = hi-4;     // zona cómoda (anti-extremos)
+  const isBass = clef==='bass';
+  const lo = isBass?40:57, hi = isBass?64:79;          // ámbito absoluto (fa Mi2-Mi4 / sol La3-Sol5)
+  // VENTANA ESTRECHA por melodía, anclada a la tónica de la tonalidad en la octava de esta clave.
+  let tonAnchor = isBass? key.tonic-12 : key.tonic;
+  while(tonAnchor<lo) tonAnchor+=12; while(tonAnchor>hi) tonAnchor-=12;
+  const winFloor = Math.max(lo, tonAnchor-2);
+  const winLo = winFloor, winHi = Math.min(hi, winFloor+14);   // ~10ª/11ª usable
+  // ZONA DE GRAVEDAD (~80% de las notas): sol Do4-Do5 (60-72) · fa La2-La3 (45-57)
+  const gravLo = isBass?45:60, gravHi = isBass?57:72;
+  const comfLo = winLo, comfHi = winHi;
   ms = ms || { leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
   if(ms.trend===undefined) ms.trend=0;    // tendencia acumulada reciente (grados netos con signo)
   // grados: 1=2ª, 2=3ª, 3=4ª, 4=5ª, 5=6ª, 7=8ª.  "salto" = 3ª+ (|step|>=2). "salto grande" = 4ª+ (|step|>=3).
@@ -1460,7 +1472,7 @@ function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNot
   let cur, startIdx, pendingComp=0;
   if(startMidi!=null){ cur=startMidi; startIdx=0; }
   else if(seedNote!=null){ cur=seedNote; out.push(cur); startIdx=1; ms.trend=0; ms.leapRun=0; ms.leapDir=0; }
-  else { cur = clef==='bass'? key.tonic-12 : key.tonic; while(cur<lo) cur+=12; while(cur>hi) cur-=12; out.push(cur); startIdx=1; }
+  else { cur = tonAnchor; out.push(cur); startIdx=1; }
 
   for(let i=startIdx;i<durs.length;i++){
     const prevD = (i===0)? (prevDur||4) : durs[i-1];
@@ -1537,9 +1549,16 @@ function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNot
     }
     const dir0 = step>0?1:-1;
 
-    // 6) sesgo anti-extremos
-    if(cur<=comfLo && step<0 && RNG()<0.7) step = -step;
-    else if(cur>=comfHi && step>0 && RNG()<0.7) step = -step;
+    // 6) REGISTRO: mantener la ventana estrecha y la zona de gravedad (~80% en gravLo..gravHi).
+    //    Cerca de los bordes de la VENTANA: rebote casi seguro hacia dentro (por grado conjunto).
+    if(cur<=winLo+1 && step<0 && RNG()<0.92) step=-step;
+    else if(cur>=winHi-1 && step>0 && RNG()<0.92) step=-step;
+    // ANTI-GRAVE / sesgo al centro de gravedad: si está por debajo de la zona, empujar arriba; si por
+    // encima, empujar abajo (por 2ª, sin crear saltos). Probabilidad moderada para no ser mecánico.
+    else if(cur<gravLo && step<0 && RNG()<0.75){ step=-step; }
+    else if(cur>gravHi && step>0 && RNG()<0.75){ step=-step; }
+    // si está fuera de la zona de gravedad y la nota es larga, sesgar el tamaño a 2ª para volver suave
+    if((cur<gravLo || cur>gravHi) && !curShort && Math.abs(step)>=3 && RNG()<0.6){ step=Math.sign(step)*1; }
 
     // re-aplicar límite de giro en racha de semis (el sesgo anti-extremos pudo invertir el step)
     if(inSemiRun){
@@ -1550,13 +1569,14 @@ function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNot
       }
     }
 
-    // 7) aplicar con rebote que nunca repite nota
+    // 7) aplicar con rebote que nunca repite nota (dentro de la VENTANA)
     const dir=step>0?1:-1;
     let next=cur;
     for(let k=0;k<Math.abs(step);k++){ next=nextScaleNote(next,dir,key); }
+    if(next<winLo||next>winHi){ next=cur; for(let k=0;k<Math.abs(step);k++){ next=nextScaleNote(next,-dir,key); } pendingComp=0; }
     if(next<lo||next>hi){ next=cur; for(let k=0;k<Math.abs(step);k++){ next=nextScaleNote(next,-dir,key); } pendingComp=0; }
-    if(next===cur){ next=nextScaleNote(cur, dir, key); if(next<lo||next>hi) next=nextScaleNote(cur,-dir,key); }
-    if(curShort && next===cur){ next=nextScaleNote(cur, -dir, key); if(next<lo||next>hi) next=nextScaleNote(cur, dir, key); }
+    if(next===cur){ next=nextScaleNote(cur, dir, key); if(next<winLo||next>winHi) next=nextScaleNote(cur,-dir,key); }
+    if(curShort && next===cur){ next=nextScaleNote(cur, -dir, key); if(next<winLo||next>winHi) next=nextScaleNote(cur, dir, key); }
 
     // 8) VERIFICACIÓN FINAL sobre la nota real
     function scaleGap(a,b,key){ if(a===b) return 0; const d=b>a?1:-1; let m=a,g=0; while(m!==b && g<20){ m=nextScaleNote(m,d,key); g++; } return d*g; }
@@ -1631,10 +1651,42 @@ function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNot
     }
   }
 
+  // ANTI-BALANCEO: evitar el vaivén insistente entre dos notas adyacentes (do-si-do-si...).
+  // Si se detecta A-B-A-B con A,B a distancia de 2ª, se rompe desviando la 4ª nota por grado
+  // conjunto en la dirección que aleje del vaivén (respetando ventana; nunca tras semicorchea).
+  for(let i=3;i<out.length;i++){
+    if(durs[i]<2 || durs[i-1]<2) continue;            // no tocar grupos rápidos
+    if(out[i]===out[i-2] && out[i-1]===out[i-3] && out[i]!==out[i-1]){
+      const d = out[i]>out[i-1] ? 1 : -1;             // seguir alejándose del vaivén
+      let cand=nextScaleNote(out[i-1], d, key);
+      if(cand<winLo||cand>winHi||cand===out[i-1]) cand=nextScaleNote(out[i-1], -d, key);
+      if(cand>=lo&&cand<=hi&&cand!==out[i-1]) out[i]=cand;
+    }
+  }
+
+  // MODO MENOR: sensible (VII#) y menor melódico ascendente (VI# + VII#) — se aplica AL FINAL.
+  if(key.minor){
+    const tpc=((key.tonic%12)+12)%12;                 // clase de la tónica
+    const deg=(m)=>{ const semis=((m-key.tonic)%12+12)%12; return semis; };  // semitonos sobre tónica
+    for(let i=0;i<out.length;i++){
+      const s=deg(out[i]);
+      // VII natural = 10 semis sobre tónica (en menor natural). Sube a sensible si RESUELVE a tónica por 2ª ascendente.
+      if(s===10){
+        const nextIsTonic = (i+1<out.length) && (deg(out[i+1])===0) && (out[i+1]>out[i]) && (out[i+1]-out[i]<=2);
+        if(nextIsTonic){ out[i]+=1;                    // VII -> VII# (sensible)
+          // VI natural (8 semis) inmediatamente anterior y ascendiendo -> menor melódico (VI#)
+          if(i>0 && deg(out[i-1])===8 && out[i]>out[i-1]){ out[i-1]+=1; }
+        }
+      }
+    }
+  }
+
   return out;
 }
+function scaleSemis(key){ return key.minor? [0,2,3,5,7,8,10] : [0,2,4,5,7,9,11]; }
 function nextScaleNote(midi,dir,key){
-  const pcs=[0,2,4,5,7,9,11].map(x=>(key.tonic+x)%12);
+  const semis=scaleSemis(key);
+  const pcs=semis.map(x=>(key.tonic+x)%12);
   let m=midi+dir;
   for(let g=0;g<12;g++){ if(pcs.includes(((m%12)+12)%12)) return m; m+=dir; }
   return midi+dir;
