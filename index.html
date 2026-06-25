@@ -1450,7 +1450,17 @@ const KEYS=[
   {name:'La m',tonic:57,sf:0,minor:true}, {name:'Mi m',tonic:64,sf:1,minor:true}, {name:'Si m',tonic:59,sf:2,minor:true},
   {name:'Re m',tonic:62,sf:-1,minor:true}, {name:'Sol m',tonic:55,sf:-2,minor:true},
 ];
-function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNote){
+function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNote, harm){
+  // harm: {roman, nextRoman} acorde implícito de ESTE compás (y el del siguiente, para resolver al cruzar).
+  // Guía armónica: en inicios de pulso, preferir notas del acorde; resolver sensible→tónica y 7ª→3ª.
+  harm = harm || {roman:0, nextRoman:null};
+  const chordSemisOf=(roman)=>{ const semis=key.minor?[0,2,3,5,7,8,10]:[0,2,4,5,7,9,11]; const r=((roman%7)+7)%7;
+    let pcs=[r,(r+2)%7,(r+4)%7].map(d=>((key.tonic+semis[d])%12+12)%12);
+    if(key.minor && (roman===4||roman===6)){ const viiNat=((key.tonic+semis[6])%12+12)%12, lead=((key.tonic+11)%12)%12; pcs=pcs.map(p=>p===viiNat?lead:p); }
+    return pcs; };
+  const chordPcs = chordSemisOf(harm.roman);
+  const isChordTone=(midi)=> chordPcs.includes(((midi%12)+12)%12);
+  if(ms) ms._sawStrongThisMeasure=false;   // se reinicia por compás (noteSeqFor se llama una vez por compás)
   // durs: duración (semis) de cada nota real. pulseStart[i]: ¿la nota i inicia un pulso?
   // startMidi: nota previa (del compás anterior). prevDur: su duración. ms: estado melódico persistente.
   // seedNote: si se da, es la 1ª nota fija del sistema (tónica/3ª/5ª del acorde).
@@ -1613,6 +1623,46 @@ function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNot
     // tendencia acumulada
     if(realBig){ ms.trend = 0; }
     else { ms.trend += gap; if(ms.trend>8) ms.trend=8; if(ms.trend<-8) ms.trend=-8; }
+    // ===== GUÍA ARMÓNICA: en INICIO DE PULSO, preferir nota del acorde implícito =====
+    // Si la nota cae en parte fuerte de pulso, no es semicorchea y no pertenece al acorde, se desplaza a la
+    // nota del acorde más cercana. En la PRIMERA nota fuerte del compás (cambio de acorde) se permite un
+    // alcance mayor (hasta 3 grados / salto de 4ª), porque cambiar de acorde por salto es musical; en el
+    // resto de pulsos, ajuste fino (≤2 grados) sin agrandar el salto melódico.
+    if(isPulseCross && !curShort && !isChordTone(next)){
+      const prevWasShort = (i>0 && durs[i-1]<2);     // ¿la nota anterior (cur) es semicorchea?
+      const isFirstStrongOfMeasure = !ms._sawStrongThisMeasure;   // primera parte fuerte del compás (cambio de acorde)
+      const maxDeg = 2;
+      const maxGap = 2;   // el ajuste armónico nunca crea más de una 3ª (preserva el criterio de saltos original)
+      const gapNow=Math.abs(scaleGap(cur,next,key));
+      // ¿cuántos saltos consecutivos llevamos ANTES de esta nota? (para no encadenar un 3er salto)
+      const leapsBefore = ms.leapRun||0;
+      let bestCand=null, bestDist=99;
+      for(let dd=-maxDeg; dd<=maxDeg; dd++){
+        if(dd===0) continue;
+        let cand=next; const dir2=dd>0?1:-1;
+        for(let z=0;z<Math.abs(dd);z++){ cand=nextScaleNote(cand,dir2,key); }
+        if(cand<lo||cand>hi||cand<winLo||cand>winHi) continue;
+        if(!isChordTone(cand)) continue;
+        const candGap=Math.abs(scaleGap(cur,cand,key));
+        if(candGap>Math.max(gapNow,maxGap)) continue;
+        if(prevWasShort && candGap>1) continue;       // tras semicorchea: nunca salto
+        // NO crear un 3er salto consecutivo: si el candidato es salto (≥3ª) y ya veníamos de 2+ saltos, descartar
+        const candIsLeap = candGap>=2;
+        if(candIsLeap && leapsBefore>=2) continue;
+        // tampoco encadenar salto si la nota ORIGINAL no era salto y el ajuste lo convierte en 2 saltos seguidos
+        if(candIsLeap && leapsBefore>=1 && gapNow<2 && candGap>=3) continue;
+        const dist=Math.abs(dd);
+        if(dist<bestDist){ bestDist=dist; bestCand=cand; }
+      }
+      if(bestCand!=null){
+        const newGap=Math.abs(scaleGap(cur,bestCand,key)); const newDir=Math.sign(scaleGap(cur,bestCand,key));
+        next=bestCand;
+        // actualizar el estado de saltos para que las siguientes notas respeten la compensación
+        if(newGap>=2){ if(newDir===ms.leapDir){ ms.leapRun=(ms.leapRun||0)+1; } else { ms.leapDir=newDir; ms.leapRun=1; } }
+        else { ms.leapRun=0; ms.leapDir=0; }
+      }
+    }
+    if(isPulseCross && !curShort) ms._sawStrongThisMeasure=true;
     out.push(next); cur=next;
   }
 
@@ -1664,19 +1714,51 @@ function noteSeqFor(durs, clef, key, startMidi, pulseStart, prevDur, ms, seedNot
     }
   }
 
-  // MODO MENOR: sensible (VII#) y menor melódico ascendente (VI# + VII#) — se aplica AL FINAL.
+  // ===== MODO MENOR: SENSIBLE POR DEFECTO =====
+  // El 7º grado (VII) es SENSIBLE (elevado) por defecto. Solo se deja en VII natural cuando forma parte de
+  // un DESCENSO por grado conjunto (p. ej. la-sol♮-fa en la menor): es decir, si la nota anterior es la
+  // tónica o el 7º descendiendo, o si la siguiente nota baja por 2ª desde el VII. En cualquier otro caso
+  // (incluida la sensible aislada o ascendiendo a tónica) se eleva.
+  // Además, bajo función de DOMINANTE (acorde V o viio del compás) la sensible es OBLIGATORIA: el V grado
+  // debe ser MAYOR, innegociable.
   if(key.minor){
-    const tpc=((key.tonic%12)+12)%12;                 // clase de la tónica
-    const deg=(m)=>{ const semis=((m-key.tonic)%12+12)%12; return semis; };  // semitonos sobre tónica
+    const deg=(m)=>(((m-key.tonic)%12)+12)%12;             // semitonos sobre tónica
+    const isDominantChord = (harm && (harm.roman===4 || harm.roman===6));
     for(let i=0;i<out.length;i++){
-      const s=deg(out[i]);
-      // VII natural = 10 semis sobre tónica (en menor natural). Sube a sensible si RESUELVE a tónica por 2ª ascendente.
-      if(s===10){
-        const nextIsTonic = (i+1<out.length) && (deg(out[i+1])===0) && (out[i+1]>out[i]) && (out[i+1]-out[i]<=2);
-        if(nextIsTonic){ out[i]+=1;                    // VII -> VII# (sensible)
-          // VI natural (8 semis) inmediatamente anterior y ascendiendo -> menor melódico (VI#)
-          if(i>0 && deg(out[i-1])===8 && out[i]>out[i-1]){ out[i-1]+=1; }
-        }
+      if(deg(out[i])!==10) continue;                        // solo VII natural (10 semis)
+      const comesDownByStep = (i>0) && (out[i] < out[i-1]) && Math.abs(scaleGap(out[i-1],out[i],key))===1;
+      const goesDownByStep  = (i+1<out.length) && (out[i+1] < out[i]) && Math.abs(scaleGap(out[i],out[i+1],key))===1;
+      const isDescentRun = comesDownByStep && goesDownByStep;   // bajada SEGUIDA (antes y después)
+      if(isDominantChord || !isDescentRun){
+        out[i]+=1;                                          // VII -> sensible
+        // EVITAR 2ª AUMENTADA: si el VI natural (8 semis) es adyacente a la sensible (3 semitonos = 2ª aum.),
+        // elevarlo a VI# (menor melódico). Se hace tanto si precede como si sigue a la sensible.
+        if(i>0 && deg(out[i-1])===8 && Math.abs(out[i]-out[i-1])===3){ out[i-1]+=1; }
+        if(i+1<out.length && deg(out[i+1])===8 && Math.abs(out[i+1]-out[i])===3){ out[i+1]+=1; }
+      }
+    }
+  }
+
+  // ===== RESOLUCIÓN DE TENDENCIAS ARMÓNICAS =====
+  // Bajo función de DOMINANTE (V o viio en este compás): la SENSIBLE (7º grado) que va seguida de un grado
+  // conjunto ascendente tiende a la TÓNICA; y la 7ª de la dominante (4º grado) tiende a bajar a la 3ª.
+  // Solo se ajusta el movimiento si ya es por grado conjunto (no se crean ni rompen saltos).
+  if(harm && (harm.roman===4 || harm.roman===6)){
+    const semis=key.minor?[0,2,3,5,7,8,10]:[0,2,4,5,7,9,11];
+    const tonicPc=((key.tonic%12)+12)%12;
+    const leadPc = key.minor? ((key.tonic+11)%12) : ((key.tonic+semis[6])%12);  // sensible
+    const subdomPc=((key.tonic+semis[3])%12);                                    // 4º grado (7ª de V)
+    const mediantPc=((key.tonic+semis[2])%12);                                   // 3º grado (resolución de la 7ª)
+    for(let i=0;i<out.length-1;i++){
+      const pc=((out[i]%12)+12)%12, npc=((out[i+1]%12)+12)%12;
+      const stepUp = (out[i+1]>out[i]) && Math.abs(scaleGap(out[i],out[i+1],key))===1;
+      const stepDn = (out[i+1]<out[i]) && Math.abs(scaleGap(out[i],out[i+1],key))===1;
+      // sensible -> tónica: si la sensible asciende por 2ª pero NO llega a tónica, redirigir a la tónica cercana
+      if(pc===leadPc && stepUp && npc!==tonicPc && durs[i]>=2){
+        let t=out[i]+1; if(((t%12)+12)%12!==tonicPc) t=out[i]+ (((tonicPc-pc)+12)%12<=2? ((tonicPc-pc)+12)%12 : 1);
+        // tónica inmediatamente por encima de la sensible
+        let cand=out[i]; do{ cand=nextScaleNote(cand,1,key); }while(((cand%12)+12)%12!==tonicPc && cand<=hi);
+        if(cand>=lo&&cand<=hi && Math.abs(scaleGap(out[i],cand,key))===1){ out[i+1]=cand; }
       }
     }
   }
@@ -1695,31 +1777,707 @@ function nextScaleNote(midi,dir,key){
 /* ============================================================
    RENDER
    ============================================================ */
+/* ============================================================
+   ARMONÍA IMPLÍCITA (mejora melódica)
+   Un acorde diatónico por compás, con progresión funcional y cadencias. La melodía se guía por este plan:
+   en los inicios de pulso prefiere notas del acorde, y las tendencias (sensible→tónica, 7ª→3ª) resuelven.
+   No altera el ritmo, la estructura ni el catálogo: solo ELIGE mejor las alturas.
+   Grados (romanos) como índice de grado de escala: 0=I,1=ii,2=iii,3=IV,4=V,5=vi,6=viio.
+   ============================================================ */
+function triadPcsOf(key, roman, withSeventh){
+  const semis = key.minor? [0,2,3,5,7,8,10] : [0,2,4,5,7,9,11];
+  const r=((roman%7)+7)%7;
+  const degs=[r,(r+2)%7,(r+4)%7]; if(withSeventh) degs.push((r+6)%7);
+  let pcs=degs.map(d=>((key.tonic+semis[d])%12+12)%12);
+  // en menor, la dominante (V) y viio llevan SENSIBLE (7º grado elevado)
+  if(key.minor && (roman===4 || roman===6)){
+    const viiNat=((key.tonic+semis[6])%12+12)%12, lead=((key.tonic+11)%12+12)%12;
+    pcs=pcs.map(p=>p===viiNat?lead:p);
+  }
+  return pcs;
+}
+// progresión funcional por nº de compases. Cierra con cadencia (… V→I). Empieza en I.
+// HARM_NEXT: continuaciones diatónicas típicas (con sesgo hacia subdominante para variar).
+const HARM_NEXT={ 0:[3,5,1,4], 1:[4,6], 2:[5,3], 3:[4,1,0], 4:[0,5], 5:[3,1,4], 6:[0] };
+function buildProgression(nMeasures, rand, opts){
+  opts=opts||{};
+  if(nMeasures<=1) return [0];
+  const endOnTonic = opts.endTonic!==false;   // por defecto cierra en I
+  for(let tries=0; tries<40; tries++){
+    const ch=[0];                              // empieza en I
+    for(let i=1;i<nMeasures-1;i++){ const opt=HARM_NEXT[ch[i-1]]||[0];
+      // sesgo a IV (subdominante) para que no sea todo I-V
+      let nx; if(opt.indexOf(3)>=0 && rand()<0.45) nx=3; else nx=opt[Math.floor(rand()*opt.length)];
+      ch.push(nx);
+    }
+    // penúltimo = dominante (V) si vamos a cerrar en I (cadencia auténtica); si no, semicadencia en V
+    if(endOnTonic){ ch.push(4); ch.push(0); }    // … V I
+    else { ch.push(4); }                          // … V (semicadencia)
+    if(ch.length===nMeasures) return ch;
+  }
+  // fallback simple
+  const out=[0]; for(let i=1;i<nMeasures;i++) out.push(i===nMeasures-1?0:(i%2?4:3));
+  if(endOnTonic && out[nMeasures-1]!==0) out[nMeasures-1]=0;
+  return out;
+}
+// plan armónico para TODA la lección. Cada SISTEMA es una FRASE de 4 compases (el 6/8 ocupa dos sistemas =
+// dos frases). Cada frase es una unidad cadencial que llega a su DESTINO en el compás 4: I (cadencia
+// auténtica) o V (semicadencia). Para que la música respire (pregunta-respuesta), se ALTERNAN: las frases
+// en posición par cierran en semicadencia (V) y las impares en auténtica (I); la ÚLTIMA frase siempre
+// cierra en auténtica (I), final rotundo. No hay semifrases: la frase entera tira hacia su única cadencia.
+function buildHarmonyPlan(model, rand){
+  rand = rand || RNG;
+  const plan=[];
+  const nSys=model.systems.length;
+  // contar frases reales (cada sistema es una frase; el 6/8 continuado también cuenta como frase propia)
+  let phraseIdx=0;
+  model.systems.forEach((sys,si)=>{
+    const n=sys.measures.length;
+    const isFinalSys=(si===nSys-1);
+    // destino de la frase: la última frase y, por defecto, las de índice impar -> auténtica (I);
+    // las de índice par (0,2,…) que no sean la última -> semicadencia (V), para crear respiración.
+    let endTonic;
+    if(isFinalSys) endTonic=true;
+    else endTonic = (phraseIdx % 2 === 1);     // frase 0: semicadencia(V); frase 1: auténtica(I); etc.
+    const prog=buildProgression(n, rand, {endTonic});
+    sys.harmony=prog;
+    sys.cadence = endTonic ? 'authentic' : 'half';   // marcar el tipo de cadencia de la frase
+    prog.forEach(r=>plan.push(r));
+    phraseIdx++;
+  });
+  return plan;
+}
 function rawStr(raw){ return (typeof raw==='object' && raw!==null) ? raw.d : raw; }
 function vfDur(raw){ return rawStr(raw).replace('d','').replace('r',''); }
-function buildMeasureNotes(seq, ts, clef, key, isFinal, melCursor, prevDur, melState, seedNote, isSystemEnd){
+/* ============================================================================
+   MELOPRO — Cerebro melódico-armónico portado de RITMO at home PRO.
+   Asigna ALTURAS a la melodía mediante un sistema de puntuación que decide
+   armonía + conducción de voces + arco + compensación de saltos A LA VEZ.
+   NO toca el ritmo, los compases, las dificultades ni las tonalidades de ACCESO:
+   solo recibe la estructura rítmica + el plan armónico y devuelve las notas.
+   (Sin dominantes secundarias, por decisión para la prueba de acceso.)
+   ============================================================================ */
+const MELOPRO=(function(){
+  const ROMANIDX={'I':0,'ii':1,'iii':2,'IV':3,'V':4,'vi':5,'viio':6};
+  function degreeOf(scale,i,tonicPc){
+    let t0=scale.findIndex(p=>((p.midi%12)-tonicPc+12)%12===0); if(t0<0)t0=0;
+    return ((i-t0)%7+7)%7;
+  }
+  function chordDegsOf(roman,seventh){ const r=ROMANIDX[roman]!=null?ROMANIDX[roman]:0; const s=new Set([r%7,(r+2)%7,(r+4)%7]); if(seventh)s.add((r+6)%7); return s; }
+  function tendencyTonesOf(roman,seventh){
+    const out=[];
+    if(roman==='V'){ out.push({deg:6,toDeg:0,dir:+1,kind:'lt'}); if(seventh) out.push({deg:3,toDeg:2,dir:-1,kind:'7th'}); }
+    else if(roman==='viio'){ out.push({deg:6,toDeg:0,dir:+1,kind:'lt'}); }
+    return out;
+  }
+  function isDominantFunction(roman){ return roman==='V' || roman==='viio'; }
+function composePhrase(scale,tonicPc,slots,rand,opts){
+  const N=scale.length, degAt=function(i){return degreeOf(scale,i,tonicPc);};
+  if(!slots.length) return [];
+  const inCh=function(i,cd){return cd.has(degAt(i));};
+  const chordIdxs=function(cd){const a=[];for(let i=0;i<N;i++)if(cd.has(degAt(i)))a.push(i);return a;};
+  const degIdxs=function(dg){const a=[];for(let i=0;i<N;i++)if(degAt(i)===dg)a.push(i);return a;};
+  const center=Math.floor(N/2);
+
+  // ---- 1) segmentar en SPANS (un acorde sostenido cada uno) ----
+  const spans=[];
+  for(let p=0;p<slots.length;p++){
+    if(p===0||slots[p].chordChange){ spans.push({start:p,end:p+1,cd:slots[p].cd}); }
+    else { spans[spans.length-1].end=p+1; }
+  }
+  const S=spans.length;
+
+  // ---- nota de salida (goal[0]) ----
+  const startCands=[]; for(let i=0;i<N;i++){ if(opts.startDeg!=null?degAt(i)===opts.startDeg:inCh(i,spans[0].cd)) startCands.push(i); }
+  let startIdx=startCands.length?startCands.reduce(function(b,i){return Math.abs(i-(center-1))<Math.abs(b-(center-1))?i:b;},startCands[0]):center;
+
+  // ---- 2) LÍNEA ESTRUCTURAL sobre ANCLAS = primer tiempo de cada compás ----
+  // El esqueleto NO sigue el ritmo armónico (demasiado rápido -> diente de sierra). Pone UNA nota-meta
+  // por compás (en su tiempo fuerte), formando un arco con UNA cima; el relleno conecta anclas por grado
+  // conjunto. Así la frase es cantable y respira por compases, no salta con cada acorde.
+  const anchorPos=[]; let lastMeas=null;
+  for(let p=0;p<slots.length;p++){ if(slots[p].measureIdx!==lastMeas){ lastMeas=slots[p].measureIdx; anchorPos.push(p); } }
+  const A=anchorPos.length;
+  const anchorIdxOf=function(p){ let a=0; for(let k=0;k<A;k++){ if(anchorPos[k]<=p) a=k; else break; } return a; };
+
+  // arco de diseño sobre las anclas: cima ~60-70% (nunca el último compás, que cadencia)
+  const lastIsCad=(opts.cadDeg!=null);
+  const peakHi=lastIsCad?Math.max(0,A-2):A-1;
+  const designPeak = A<=2 ? Math.max(0,A-1) : Math.max(1, Math.min(peakHi, Math.round((A-1)*(0.6+rand()*0.16))));
+  const lift = Math.max(3, Math.min(N-1-startIdx, 5+Math.floor(rand()*3)));   // 5ª..8ª de subida si el registro lo permite
+  const rawH=function(a){
+    if(designPeak<=0) return (lastIsCad&&a===A-1)?startIdx:startIdx;
+    if(a<=designPeak) return startIdx + lift*(a/designPeak);
+    const base=startIdx+lift;
+    return base + (startIdx-base)*((a-designPeak)/Math.max(1,(A-1-designPeak)));
+  };
+  // metas: SNAP a nota del acorde de su ancla, MONÓTONAS (no decrecen antes de la cima ni crecen después)
+  const anchor=new Array(A); anchor[0]=startIdx;
+  for(let a=1;a<A;a++){
+    const cd=slots[anchorPos[a]].cd, cands=chordIdxs(cd); if(!cands.length){ anchor[a]=anchor[a-1]; continue; }
+    const raw=rawH(a), prev=anchor[a-1], ascending=(a<=designPeak);
+    let pool=cands.filter(i=> ascending ? i>=prev : i<=prev); if(!pool.length) pool=cands;
+    const sc=function(x){ let v=Math.abs(x-raw); if(x===prev) v+=2.0; const st=Math.abs(x-prev); if(st>5) v+=(st-5)*2.5; return v; };
+    anchor[a]=pool.reduce(function(b,i){return sc(i)<sc(b)?i:b;},pool[0]);
+  }
+  // última ancla = grado de reposo de la cadencia (descenso cadencial real)
+  if(lastIsCad && A>=2){
+    const cands=degIdxs(opts.cadDeg);
+    if(cands.length){ const raw=rawH(A-1), prev=anchor[A-2];
+      anchor[A-1]=cands.reduce(function(b,i){ return (Math.abs(i-raw)+Math.abs(i-prev)*0.4) < (Math.abs(b-raw)+Math.abs(b-prev)*0.4) ? i : b; }, cands[0]); }
+  }
+  // cima REAL = ancla más alta
+  let peakA=0, peakH=anchor[0]; for(let a=1;a<A;a++){ if(anchor[a]>peakH){ peakH=anchor[a]; peakA=a; } }
+  // el ápice se sitúa un poco DENTRO del compás de la cima (no en su mismo tiempo fuerte) para que el ascenso respire
+  const peakStart=anchorPos[peakA], peakNext=(peakA+1<A)?anchorPos[peakA+1]:slots.length;
+  const peakPos=Math.min(slots.length-1, peakStart+Math.floor((peakNext-peakStart)/3));
+
+  // target continuo: interpola linealmente entre anclas consecutivas (arco suave)
+  // tónica más cercana a un índice dado (para hacer descansar la melodía en la paradita)
+  // nota del grado de reposo de la paradita (tónica si A auténtica, 5º grado si A semicadencia), cercana a un índice
+  const _msDeg=(opts.midStopDeg!=null)?opts.midStopDeg:0;
+  const nearestRestTo=function(ref){ const ts=[]; for(let i=0;i<N;i++) if(degAt(i)===_msDeg) ts.push(i); if(!ts.length) return ref; return ts.reduce(function(b,i){return Math.abs(i-ref)<Math.abs(b-ref)?i:b;},ts[0]); };
+  const _msIdx=(opts.midStopIdx!=null)?opts.midStopIdx:-1;
+  const targetAt=function(p){ const a=anchorIdxOf(p);
+    let base;
+    if(a>=A-1) base=anchor[A-1];
+    else { const p0=anchorPos[a], p1=anchorPos[a+1], f=(p-p0)/Math.max(1,(p1-p0)); base=anchor[a]+(anchor[a+1]-anchor[a])*f; }
+    // si hay PARADITA cerca, doblar el objetivo hacia la tónica más próxima (reposo de la 1ª semifrase)
+    if(_msIdx>0 && p>=_msIdx-2 && p<=_msIdx){
+      const tonicNear=nearestRestTo(Math.round(base));
+      const w=(p===_msIdx)?0.88:(p===_msIdx-1?0.6:0.35);   // cuanto más cerca de la paradita, más tira a la tónica
+      base=base*(1-w)+tonicNear*w;
+    }
+    return base;
+  };
+
+  // ---- 3) realización: caminante con esqueleto, impulso, arpegio y secuencia ----
+  const anchorSet=new Set(anchorPos);
+  const idxs=[startIdx]; let prevStep=0,prevLeap=false,maxIdx=startIdx,minIdx=startIdx,leapRun=0,dirRun=0,lastDir=0;
+  let climaxReached=false;
+  let curMeasure=slots[0].measureIdx, measureUse={}; measureUse[startIdx]=1;
+  // COMPENSACIÓN DE SALTOS: todo salto (3ª+) se "rellena" después con 2ª(s) en dirección contraria.
+  // compDebt = nº de 2ªs contrarias que faltan por hacer; compDir = dirección en que deben ir esas 2ªs.
+  // leapChain = saltos consecutivos en curso (para permitir EXACTAMENTE un arpegio de 2 saltos).
+  let compDebt=0, compDir=0, leapChain=0, prevLeapSize=0, prevLeapDir=0;
+  // SECUENCIA por COMPÁS: memoriza el contorno de intervalos de un compás e imítalo en el siguiente si coincide el nº de notas
+  const measNoteCount={}; for(let p=0;p<slots.length;p++){ measNoteCount[slots[p].measureIdx]=(measNoteCount[slots[p].measureIdx]||0)+1; }
+  let prevMeasIv=null, curMeasIv=[], prevMeasCount=measNoteCount[curMeasure];
+  const doSeq=(rand()<0.6);
+
+  for(let p=1;p<slots.length;p++){
+    const cur=idxs[p-1], slot=slots[p], cd=slot.cd, strong=slot.strong;
+    if(slot.measureIdx!==curMeasure){
+      prevMeasIv=curMeasIv.slice(); prevMeasCount=measNoteCount[curMeasure];   // guarda el contorno del compás recién cerrado
+      curMeasure=slot.measureIdx; measureUse={}; curMeasIv=[];
+    }
+    const t=targetAt(p);
+    const curChord=inCh(cur,cd);
+    const aHere=anchorSet.has(p);              // tiempo fuerte de compás = ancla
+    const aVal=anchor[anchorIdxOf(p)];
+    const isPeakNote=(p===peakPos);
+    const chordChange=!!slot.chordChange;
+    // grados de FUNDAMENTAL y 3ª del acorde actual (para proyectar la función en el asentamiento tonal)
+    const _rr=(slot.roman!=null && ROMANIDX[slot.roman]!=null)?ROMANIDX[slot.roman]:null;
+    const chordRootDeg=(_rr!=null)?(_rr%7):null;
+    const chordThirdDeg=(_rr!=null)?((_rr+2)%7):null;
+    const offInMeas=curMeasIv.length;          // 0 = intervalo de entrada al compás
+    const seqIv=(doSeq && prevMeasIv && measNoteCount[curMeasure]===prevMeasCount && offInMeas<prevMeasIv.length && anchorIdxOf(p)<A-1) ? prevMeasIv[offInMeas] : null;
+    const phraseDir=(p<peakPos)?1:(p>peakPos?-1:0);   // tendencia global del arco: subir hacia la cima, bajar después
+    // aproximación a la PARADITA de semifrase: en las ~2 notas previas, tirar hacia la tónica (reposo auténtico)
+    const msi=(opts.midStopIdx!=null)?opts.midStopIdx:-1;
+    const approachingMidStop=(msi>0 && p>=msi-2 && p<=msi);
+    const prevSlot=slots[p-1];
+    const bothFast=prevSlot.isFast && slot.isFast;             // dos notas rápidas seguidas (semicorcheas/fusas)
+    const endFastGroup=prevSlot.isFast && !slot.isFast;        // primera nota tras un grupo de notas rápidas
+    const samePulse=prevSlot.pulseId===slot.pulseId;
+    // ---- GRUPOS DE VALORACIÓN ESPECIAL (tresillo, cinquillo… de corcheas) ----
+    // Reglas de Iago: (1) tras un grupo de valoración especial NO hay salto (aunque sean corcheas);
+    // (2) el paso del último pulso del grupo al siguiente pulso va por GRADO CONJUNTO, o un salto PEQUEÑO
+    //     (3ª) en DIRECCIÓN OPUESTA a la línea que ha trazado el grupo (p.ej. tresillo mi-re-do ↓ -> fa ↑).
+    const prevEndsGroup = prevSlot.inGroup && prevSlot.lastOfGroup && !slot.inGroup;   // cur cierra un grupo y vamos al pulso siguiente
+    let groupDir=0;
+    if(prevEndsGroup){
+      // dirección global del grupo: desde su primera nota hasta la última (cur)
+      let gStart=p-1; while(gStart>0 && slots[gStart].inGroup && !slots[gStart].firstOfGroup) gStart--;
+      groupDir=Math.sign(idxs[p-1]-idxs[gStart]);
+      if(groupDir===0) groupDir = (idxs[p-1]>=Math.floor(N/2))?-1:1;   // grupo plano: empuja hacia el centro
+    }
+
+    // ---- RESOLUCIÓN OBLIGADA DE NOTAS DE TENDENCIA (conducción de voces) ----
+    // Si la nota actual (cur) cae sobre la SENSIBLE o la 7ª del acorde DOMINANTE de su pulso, la nota
+    // siguiente DEBE resolverla por 2ª (sensible↑ a tónica, 7ª↓). Esto "demuestra" la función dominante
+    // en la monodia. Filtro DURO con válvula de seguridad: si NINGUNA candidata resuelve, se relaja para
+    // no bloquear la generación (raro). 'cur' pertenece al slot anterior (prevSlot).
+    let resolveReq=null;                 // {dir, toDeg, kind}
+    const curDeg=degAt(cur);
+    if(prevSlot.dom && prevSlot.tend && prevSlot.tend.length){
+      for(const tt of prevSlot.tend){ if(tt.deg===curDeg){ resolveReq={dir:tt.dir, toDeg:tt.toDeg, kind:tt.kind}; break; } }
+    }
+    // ¿existe una nota de resolución alcanzable dentro de la escala? (2ª en la dirección correcta al grado destino)
+    let resolvable=false;
+    if(resolveReq){
+      for(let d=-2;d<=2;d++){ if(d===0)continue; const b=cur+d; if(b<0||b>=N)continue;
+        if(Math.abs(d)===1 && Math.sign(d)===resolveReq.dir && degAt(b)===resolveReq.toDeg){ resolvable=true; break; } }
+    }
+
+    const cands=[];
+    for(let d=-7;d<=7;d++){ if(d===0)continue; const b=cur+d; if(b<0||b>=N)continue;
+      const semis=Math.abs(scale[b].midi-scale[cur].midi), deg=Math.abs(d), dir=Math.sign(d), isLeap=deg>=2;
+      if(semis===0 && samePulse) continue;                                 // sin notas repetidas dentro del MISMO pulso
+      if(semis===6||semis>=10) continue;                                   // sin tritono ni 7ª melódica
+      if(isLeap && leapRun>=2) continue;                                   // nunca 3 saltos seguidos
+      const bChord=inCh(b,cd);
+      // ---- RESOLUCIÓN de nota de tendencia (conducción de voces) ----
+      // Se EXIGE (filtro duro) solo cuando la nota de tendencia es ESTRUCTURAL: cae en parte fuerte del
+      // acorde dominante, o es la última bajo ese acorde (cambio de acorde en la nota siguiente). En el resto
+      // de apariciones (notas de paso débiles) la resolución es una preferencia fuerte de puntuación (sección E'),
+      // para no rigidizar el caminante y poder cumplir siempre validateMelody.
+      const tendStructural = resolveReq && resolvable && (prevSlot.strong || slot.chordChange);
+      if(tendStructural){
+        if(!(deg===1 && dir===resolveReq.dir && degAt(b)===resolveReq.toDeg)) continue;  // solo la nota de resolución
+      }
+      // ---- compensación de saltos (conducción melódica): rellenar el hueco con 2ªs contrarias ----
+      const arpEligible = (leapChain===1 && dir===prevLeapDir && bChord && inCh(cur,cd) &&
+                           ((prevLeapSize===2&&deg===2)||(prevLeapSize===2&&deg===3)||(prevLeapSize===3&&deg===2))); // 2 terceras o 3ª+4ª = arpegio
+      if(compDebt>0 && isLeap) continue;                                   // con deuda pendiente, prohibido saltar (hay que compensar antes)
+      if(compDebt>0 && deg===1 && dir!==compDir) continue;                 // con deuda, SOLO se permite la 2ª contraria (rellenar el hueco)
+      if(compDebt===0 && isLeap && leapChain>=1 && !arpEligible) continue; // 2º salto seguido solo si forma arpegio
+      if(endFastGroup && isLeap) continue;                                 // tras un grupo rápido (semicorcheas), la resolución es por 2ª (no salto)
+      // REGLA DE IAGO: tras una SEMICORCHEA/FUSA (nota rápida) NUNCA hay salto, vaya a otra rápida o a nota
+      // larga. Solo grado conjunto (o unísono donde esté permitido). Los saltos se reservan a las corcheas.
+      if(prevSlot.isFast && isLeap) continue;
+      // SALIDA DE GRUPO DE VALORACIÓN ESPECIAL (corcheas de tresillo/cinquillo…): grado conjunto, o salto
+      // PEQUEÑO (3ª) en dirección OPUESTA a la línea del grupo. Nunca salto en la misma dirección ni 4ª+.
+      if(prevEndsGroup){
+        if(deg>=3) continue;                                               // 4ª o más: prohibido salir de un grupo
+        if(deg===2 && dir===groupDir) continue;                            // 3ª solo si va EN CONTRA de la línea del grupo
+      }
+      if(bothFast && deg>=4) continue;                                     // (redundante con la regla anterior, se mantiene por seguridad)
+      if(bothFast && deg===3 && !arpEligible) continue;
+      let sc=0;
+
+      // (A) ESQUELETO: acercarse al target del arco (guía la frase, pero sin atar -> recorridos limpios)
+      sc -= Math.abs(b-t)*1.05;
+
+      // (B) jerarquía métrica: fuertes y anclas prefieren nota del acorde; débiles, grado conjunto
+      if(strong||aHere){ sc += bChord? 9 : -7; }
+      else { if(deg===1) sc += 3.0; if(bChord) sc += 2.2; }
+
+      // (B') COMPENSACIÓN: premiar la 2ª contraria que rellena el hueco (más cuanto mayor la deuda)
+      if(compDebt>0 && deg===1 && dir===compDir) sc += 7+2*compDebt;
+      // (B'') fin de grupo rápido -> 2ª contraria a la dirección que traía
+      if(endFastGroup){ if(deg===1 && dir===-Math.sign(prevStep||dir)) sc += 8; else if(deg===1) sc -= 4; }
+
+      // (C) ARPEGIO ligero: 3ª por nota del acorde cuando el acorde se sostiene (sin abusar)
+      if(!aHere && deg===2 && bChord && curChord) sc += 1.4;
+
+      // (D) IMPULSO + ARCO: rachas direccionales largas y tendencia global -> un gran arco, giros sobre todo en las barras
+      if(lastDir!==0){ if(Math.sign(d)===lastDir){ sc += Math.min(3.4, 1.4+0.65*dirRun); } else { sc -= 2.1; } }
+      if(phraseDir!==0 && Math.sign(d)===phraseDir) sc += 1.7;
+
+      // (E) tendencias tonales y relleno de hueco
+      if(degAt(cur)===6 && degAt(b)===0 && d>0) sc += 4;       // sensible -> tónica
+      if(degAt(cur)===3 && degAt(b)===2 && d<0) sc += 2.5;     // 4 -> 3
+      if(degAt(cur)===1 && degAt(b)===0 && d<0 && strong) sc += 1.5;
+      if(prevLeap && deg===1 && Math.sign(d)!==Math.sign(prevStep)) sc += 6.5;  // tras salto, grado conjunto contrario (rellena el hueco): debe ganar al impulso
+      if(prevLeap && isLeap) sc -= 2.5;
+
+      // (E') CONDUCCIÓN DE VOCES en acordes de DOMINANTE (V, V7, viio y dominantes secundarias V/V, V/vi):
+      //   - premia TOCAR la sensible o la 7ª cuando suena el acorde dominante (para que la función se oiga)
+      //   - premia con fuerza RESOLVER esas notas de tendencia (sensible↑ a tónica, 7ª↓) en la nota siguiente
+      if(slot.dom && slot.tend){ for(const tt of slot.tend){ if(degAt(b)===tt.deg) sc += (tt.kind==='lt'?3:2); } }
+      if(resolveReq){ if(deg===1 && dir===resolveReq.dir && degAt(b)===resolveReq.toDeg) sc += 8; }
+      // (compatibilidad con el premio antiguo de secundaria; ya cubierto arriba, se mantiene suave)
+      if(slot.sec && degAt(b)===slot.sec.altDeg) sc += 2.5;                    // toca el grado que será la sensible aplicada
+
+      // (E'') APROXIMACIÓN A LA PARADITA: tirar hacia la TÓNICA para que la 1ª semifrase repose en I
+      //   (cadencia auténtica de semifrase). En la propia nota de la paradita, premiar fuerte la tónica
+      //   y la llegada por grado conjunto; en las 1-2 previas, premiar acercarse a la tónica.
+      if(approachingMidStop){
+        if(p===msi){ if(degAt(b)===_msDeg) sc += 9; if(deg<=2) sc += 2; else sc -= 2; }   // la paradita = grado de reposo, por grado/3ª
+        else { if(degAt(b)===_msDeg) sc += 2.5; if(_msDeg===0 && degAt(b)===6 && d>0) sc += 1.5; if(_msDeg===0 && degAt(b)===1) sc += 1.0; }  // preparar
+      }
+
+      // (F) CLÍMAX ÚNICO
+      if(climaxReached && b>maxIdx) sc -= 9;                                   // no superar la cima ya alcanzada
+      if(!climaxReached && p<peakPos && b>peakH) sc -= 5;                      // no tocar el techo antes de tiempo
+      if(isPeakNote){ if(b>=peakH) sc += 4; if(d>=2 && d<=4) sc += 1.6; }      // la cima, a veces por salto expresivo
+
+      // (G) ANCLA: aterriza en la nota-meta del compás, mejor por grado conjunto
+      if(aHere){ if(b===aVal) sc += 6; if(deg<=2) sc += 1.5; else sc -= 2.5; if(!bChord) sc -= 3; }
+      // cambio de acorde intra-compás: pull SUAVE a nota del acorde nuevo (sin forzar -> contorno cantable)
+      else if(chordChange && bChord && deg<=2) sc += 1.2;
+
+      // (G') ASENTAMIENTO TONAL (1ª frase): proyectar la armonía con más nitidez para que la MONODIA
+      //      "demuestre" la cadencia auténtica. En cada cambio funcional (y en parte fuerte) se premia
+      //      con fuerza la nota del acorde, y en especial la FUNDAMENTAL o la 3ª (lo que define T/S/D).
+      if(opts.establish){
+        const degB=degAt(b);
+        const isRoot = cd.has(degB) && (chordRootDeg!=null) && (degB===chordRootDeg);
+        const isThird = cd.has(degB) && (chordThirdDeg!=null) && (degB===chordThirdDeg);
+        if((strong||aHere||chordChange) && bChord) sc += 4;          // refuerza notas reales del acorde en los apoyos
+        if((strong||chordChange) && (isRoot||isThird)) sc += 3;      // fundamental/3ª = define la función con claridad
+        if((strong||aHere) && !bChord) sc -= 3;                      // penaliza notas ajenas en los apoyos
+      }
+
+      // (H) SECUENCIA tonal: imita el contorno del compás anterior
+      if(seqIv!=null && d===seqIv) sc += 4.0;
+
+      // (I) anti-repetición (suave: solo evita unísono y orbitar, sin forzar giros en una racha)
+      if(b===idxs[p-1]) sc -= 8;
+      if(p>=2 && b===idxs[p-2]) sc -= 3;
+      if(p>=3 && b===idxs[p-2] && idxs[p-1]===idxs[p-3]) sc -= 5;
+      const useB=(measureUse[b]||0); if(useB>=2) sc -= 6; else if(useB>=1) sc -= 2;
+
+      cands.push({b:b,s:sc,d:d,isLeap:isLeap,bChord:bChord});
+    }
+    let chosen;
+    if(!cands.length){
+      // sin candidatos válidos: la RESOLUCIÓN de una nota de tendencia manda por encima de todo;
+      // luego la compensación / salida de grupo rápido, y por último el arco.
+      let dir;
+      if(resolveReq && resolvable) dir=resolveReq.dir;                 // sensible↑ / 7ª↓ (conducción de voces)
+      else if(prevEndsGroup) dir=(groupDir!==0?-groupDir:(cur<t?1:-1)); // salida de grupo: por grado conjunto, contra la línea del grupo
+      else if(compDebt>0 && compDir!==0) dir=compDir;
+      else if(endFastGroup && prevStep!==0) dir=-Math.sign(prevStep);
+      else dir=cur<t?1:(cur>t?-1:(lastDir||1));
+      let b=Math.max(0,Math.min(N-1,cur+dir)); if(b===cur) b=Math.max(0,Math.min(N-1,cur-dir));
+      chosen={b:b,d:b-cur,isLeap:Math.abs(b-cur)>=2};
+    }
+    else{
+      cands.sort(function(a,b){return b.s-a.s;}); const top=cands.filter(function(c){return c.s>=cands[0].s-1.2;}); chosen=top[Math.floor(rand()*top.length)]; }
+    idxs.push(chosen.b);
+    const realStep=chosen.b-cur, mvDeg=Math.abs(realStep), mvDir=Math.sign(realStep);
+    // máquina de compensación: una 2ª contraria paga deuda; un salto crea deuda (mayor salto, más deuda); arpegio = 2 saltos
+    if(mvDeg===1){
+      if(compDebt>0 && mvDir===compDir) compDebt--;
+      leapChain=0; if(compDebt===0) compDir=0;
+    } else if(mvDeg>=2){
+      if(leapChain>=1 && mvDir===prevLeapDir){ const span=prevLeapSize+mvDeg; compDebt=span<=4?2:3; compDir=-mvDir; leapChain=2; }
+      else { compDebt=(mvDeg===2?1:mvDeg===3?2:3); compDir=-mvDir; leapChain=1; }
+      prevLeapSize=mvDeg; prevLeapDir=mvDir;
+    }
+    prevStep=realStep; prevLeap=mvDeg>=2; leapRun=prevLeap?leapRun+1:0;
+    const dir=mvDir; if(dir!==0){ dirRun=(dir===lastDir)?dirRun+1:0; lastDir=dir; }
+    curMeasIv.push(realStep);
+    if(chosen.b>maxIdx)maxIdx=chosen.b; if(chosen.b<minIdx)minIdx=chosen.b;
+    if(p>=peakPos) climaxReached=true;
+    measureUse[chosen.b]=(measureUse[chosen.b]||0)+1;
+  }
+  // instantánea del recorrido del CAMINANTE (ya válido) antes de los retoques de cadencia/paradita:
+  // si algún retoque deja un intervalo prohibido en la línea completa, se revierte a esta versión.
+  const walkerIdxs=idxs.slice();
+
+  // REPOSO DE SEMIFRASE: la nota fundida de la paradita (midStopIdx) reposa la 1ª semifrase en la TÓNICA
+  // (cadencia auténtica interna). Se busca la tónica más cercana a la nota previa; si queda a distancia de
+  // 2ª o 3ª, se fija el reposo en la tónica y se ajusta la preparación y la salida para no romper la
+  // compensación de saltos. Si aun así la rompe, se revierte al recorrido del caminante.
+  if(opts.midStopIdx!=null && opts.midStopIdx>=1 && opts.midStopIdx<idxs.length){
+    const before=idxs.slice();
+    const j=opts.midStopIdx, pen=idxs[j-1];
+    const targets=degIdxs(opts.midStopDeg!=null?opts.midStopDeg:0);
+    if(targets.length){
+      const ti=targets.reduce(function(b,i){return Math.abs(i-pen)<Math.abs(b-pen)?i:b;},targets[0]);
+      const reach=Math.abs(ti-pen);
+      // si la nota previa CIERRA un grupo de valoración especial, la llegada a la parada debe respetar la
+      // regla del grupo: grado conjunto, o 3ª en dirección OPUESTA a la línea del grupo. Si no, no forzar.
+      let groupConflict=false;
+      if(slots[j-1] && slots[j-1].inGroup && slots[j-1].lastOfGroup){
+        let gStart=j-1; while(gStart>0 && slots[gStart].inGroup && !slots[gStart].firstOfGroup) gStart--;
+        const gdir=Math.sign(idxs[j-1]-idxs[gStart]);
+        const step=ti-pen, stepDeg=Math.abs(step), stepDir=Math.sign(step);
+        if(stepDeg>=3) groupConflict=true;                          // 4ª+ saliendo de grupo: no
+        else if(stepDeg===2 && stepDir===gdir) groupConflict=true;  // 3ª en la misma dirección del grupo: no
+      }
+      if(reach<=2 && !groupConflict){                // tónica alcanzable por 2ª/3ª y sin romper la salida de grupo
+        idxs[j]=ti;
+        const inStep=ti-pen, inDeg=Math.abs(inStep);
+        // si la llegada a la tónica es un SALTO (3ª), la nota SIGUIENTE debe compensar por 2ª contraria
+        if(inDeg>=2 && j+1<idxs.length){
+          const want=ti-Math.sign(inStep);            // 2ª contraria al salto de llegada
+          if(want>=0 && want<idxs.length && Math.abs(want-ti)===1) idxs[j+1]=want;
+        }
+        // preparar la entrada: si la nota previa no es sensible/2º/3º, acercarla por grado conjunto a la tónica
+        if([1,6,2].indexOf(degAt(idxs[j-1]))<0 && j>=2){
+          const appr=degIdxs(6).concat(degIdxs(1));    // sensible o 2º grado
+          if(appr.length){ const si=appr.reduce(function(b,i){return Math.abs(i-ti)<Math.abs(b-ti)?i:b;},appr[0]);
+            const ref=idxs[j-2]; if(Math.abs(si-ti)<=2 && Math.abs(si-ref)<=2) idxs[j-1]=si; }
+        }
+      }
+      // revertir si el retoque rompe la compensación de saltos O introduce un intervalo prohibido
+      const compOK=function(arr,k){ if(k<1||k>=arr.length) return true; const inn=arr[k]-arr[k-1]; if(Math.abs(inn)<2) return true;
+        if(k+1>=arr.length) return true; const out=arr[k+1]-arr[k];
+        const contrary=(Math.abs(out)===1 && Math.sign(out)===-Math.sign(inn));
+        const arp=(Math.abs(out)>=2 && Math.abs(out)<=3 && Math.sign(out)===Math.sign(inn));
+        return contrary||arp; };
+      // intervalo melódico prohibido (tritono/7ª/+8ª) en cualquier salto tocado por el retoque
+      const ivlOK=function(arr,k){ if(k<1||k>=arr.length) return true; const s=Math.abs(scale[arr[k]].midi-scale[arr[k-1]].midi); return !(s===6||(s>=10&&s<=11)||s>12); };
+      const touched=[j-1,j,j+1];
+      const badIvl=touched.some(k=>!ivlOK(idxs,k));
+      if(!compOK(idxs,j-1) || !compOK(idxs,j) || !compOK(idxs,j-2) || badIvl){ for(let z=0;z<idxs.length;z++) idxs[z]=before[z]; }
+    }
+  }
+
+  // cierre cadencial: asegurar penúltima->última conforme al grado de reposo,
+  // SIN romper la compensación de saltos que el caminante ya garantizó (si la rompe, se revierte).
+  if(opts.cadDeg!=null && idxs.length>=2){
+    const before=idxs.slice();
+    const last=idxs.length-1, pen=idxs[last-1];
+    const targets=degIdxs(opts.cadDeg);
+    if(targets.length){ const ti=targets.reduce(function(b,i){return Math.abs(i-pen)<Math.abs(b-pen)?i:b;},targets[0]);
+      if(Math.abs(ti-pen)<=2) idxs[last]=ti;
+      if(opts.cadDeg===0 && [1,6].indexOf(degAt(idxs[last-1]))<0){ const sup=degIdxs(1);
+        if(sup.length){ const si=sup.reduce(function(b,i){return Math.abs(i-idxs[last])<Math.abs(b-idxs[last])?i:b;},sup[0]); const ref=(last-2>=0)?idxs[last-2]:idxs[last-1]; if(Math.abs(si-idxs[last])<=2 && Math.abs(si-ref)<=1) idxs[last-1]=si; } }
+      // ¿el retoque dejó algún salto sin compensar O un intervalo prohibido en la zona final? -> revertir
+      const compOK=function(arr,j){ if(j<1||j>=arr.length) return true; const inn=arr[j]-arr[j-1]; if(Math.abs(inn)<2) return true;
+        if(j+1>=arr.length) return true; const out=arr[j+1]-arr[j];
+        const contrary=(Math.abs(out)===1 && Math.sign(out)===-Math.sign(inn));
+        const arp=(Math.abs(out)>=2 && Math.abs(out)<=3 && Math.sign(out)===Math.sign(inn));
+        return contrary||arp; };
+      const ivlOK=function(arr,k){ if(k<1||k>=arr.length) return true; const s=Math.abs(scale[arr[k]].midi-scale[arr[k-1]].midi); return !(s===6||(s>=10&&s<=11)||s>12); };
+      const badIvl=[last-1,last].some(k=>!ivlOK(idxs,k));
+      if(!compOK(idxs,last-1) || !compOK(idxs,last-2) || badIvl){ for(let z=0;z<idxs.length;z++) idxs[z]=before[z]; }
+    }
+  }
+
+  // GUARDIA FINAL: si algún retoque (paradita/cadencia) dejó la línea fuera de las reglas de conducción
+  // (intervalo prohibido, salto sin compensar, salida de grupo rápido por salto, unísono en el mismo pulso),
+  // revertir: primero solo la zona de la paradita; si persiste, toda la línea al recorrido del caminante.
+  const lineOK=function(arr){
+    for(let k=1;k<arr.length;k++){
+      const semis=Math.abs(scale[arr[k]].midi-scale[arr[k-1]].midi);
+      if(semis===6||(semis>=10&&semis<=11)||semis>12) return false;          // tritono/7ª/+8ª
+      const sa=slots[k], sb=slots[k-1];
+      const degStep=Math.abs(arr[k]-arr[k-1]);                                // distancia en grados de escala (2 = 3ª)
+      if(sb.isFast && degStep>=2) return false;                              // tras una SEMICORCHEA/FUSA: nunca salto
+      if(sb.inGroup && sb.lastOfGroup && !sa.inGroup && degStep>=3) return false; // salida de grupo: nunca 4ª+
+      if(semis===0 && sa.pulseId===sb.pulseId) return false;                  // unísono en el mismo pulso
+    }
+    // compensación de saltos (3ª+ -> 2ª contraria o arpegio), excepto la última nota
+    for(let k=1;k<arr.length;k++){ const d=arr[k]-arr[k-1], a=Math.abs(d);
+      if(a>=2){ if(k+1>=arr.length) continue; const nx=arr[k+1]-arr[k], an=Math.abs(nx);
+        const contrary=(an===1&&Math.sign(nx)===-Math.sign(d));
+        const arp=(an>=2&&an<=3&&Math.sign(nx)===Math.sign(d));
+        if(!contrary&&!arp) return false; } }
+    return true;
+  };
+  if(!lineOK(idxs)){
+    if(opts.midStopIdx!=null){ const j=opts.midStopIdx; for(let z=Math.max(0,j-2);z<=Math.min(idxs.length-1,j+1);z++) idxs[z]=walkerIdxs[z]; }
+    if(!lineOK(idxs)){ for(let z=0;z<idxs.length;z++) idxs[z]=walkerIdxs[z]; }
+  }
+  return idxs;
+}
+
+  // ----- ADAPTADOR: escala en formato PRO desde la tonalidad de ACCESO -----
+  // ACCESO usa key={name,tonic(midi),sf,minor}. Construimos un array {midi,key} ordenado por la escala,
+  // dentro del ámbito de la clave. Usa el deletreo correcto (sensible del menor como VII#, etc.).
+  // Ventana estrecha anclada a la tónica (registro típico de ACCESO, no toda la tesitura de la clave):
+  // desde la tónica más grave dentro del ámbito hasta ~una 10ª por encima. Así el arco melódico de PRO
+  // (que sube una 5ª-8ª) no se sale por el agudo, y la melodía respira en un registro cantable y estrecho.
+  const RANGE_ACC={treble:{lo:57,hi:79}, bass:{lo:40,hi:64}};
+  function buildScaleAcc(key, clef){
+    const semis = key.minor? [0,2,3,5,7,8,10] : [0,2,4,5,7,9,11];
+    const tpc=((key.tonic%12)+12)%12;
+    const {lo,hi}=RANGE_ACC[clef]||RANGE_ACC.treble;
+    // tónica base: la más grave dentro del ámbito (para clave de fa, una octava más grave)
+    let tonicBase = (clef==='bass') ? key.tonic-12 : key.tonic;
+    while(tonicBase < lo) tonicBase+=12;
+    while(tonicBase-12 >= lo) tonicBase-=12;   // la tónica más grave posible dentro del ámbito
+    const winLo = Math.max(lo, tonicBase-2);   // una 2ª por debajo de la tónica (apoyo inferior)
+    const winHi = Math.min(hi, tonicBase+16);  // ~una 10ª por encima (techo del arco)
+    const out=[];
+    for(let midi=winLo; midi<=winHi; midi++){ const pc=((midi%12)+12)%12;
+      if(semis.includes(((pc-tpc)%12+12)%12)){ out.push({midi, key:spellAcc(midi,key), _pc:pc}); }
+    }
+    return out;
+  }
+  // deletreo de una nota natural de la escala según la armadura de ACCESO
+  function spellAcc(midi, key){
+    const sp=(typeof spellMidi==='function')? spellMidi(midi,key) : null;
+    if(sp){ return sp.letter + (sp.alt==='#'?'#':sp.alt==='b'?'b':'') + '/' + sp.oct; }
+    const names=['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
+    return names[((midi%12)+12)%12]+'/'+(Math.floor(midi/12)-1);
+  }
+
+  // ----- construir SLOTS de un sistema (frase) desde sus figuras rítmicas + plan armónico -----
+  // figsByMeasure: [{ figs:[{midi?,raw,rest,cell,...}], pulseStartReal:[bool por nota real], harmRoman }]
+  // Devuelve {slots, scale, tonicPc, assignableRefs}
+  // (cada slot describe una NOTA real con su info rítmica y armónica para composePhrase)
+  function buildSlots(measures, key, clef){
+    const scale=buildScaleAcc(key, clef);
+    const tonicPc=((key.tonic%12)+12)%12;
+    const slots=[]; const refs=[]; let prevRoman=null, prevHadChange=true;
+    measures.forEach((M, mi)=>{
+      const roman=M.harmRoman!=null? M.harmRoman : 'I';
+      const seventh=!!M.seventh;
+      const cd=chordDegsOf(roman, seventh);
+      const tend=tendencyTonesOf(roman, seventh);
+      const dom=isDominantFunction(roman);
+      const chordChange=(roman!==prevRoman) || mi===0;
+      let realIdx=0;
+      M.realNotes.forEach((rn)=>{
+        const isGroup=!!rn.inGroup, firstG=!!rn.firstOfGroup, lastG=!!rn.lastOfGroup;
+        let strong=!!rn.pulseStart; if(isGroup && !firstG) strong=false;
+        slots.push({ strong, cd, measureIdx:mi, chordChange:(realIdx===0 && chordChange),
+                     roman, seventh, sec:null, beats:rn.beats, isFast:(rn.beats<=0.26),
+                     pulseId:mi*100+(rn.pulseIdx||0), pulseStart:!!rn.pulseStart,
+                     inGroup:isGroup, firstOfGroup:firstG, lastOfGroup:lastG, dom, tend });
+        refs.push(rn);
+        realIdx++;
+      });
+      prevRoman=roman;
+    });
+    return {slots, scale, tonicPc, refs};
+  }
+
+  // ----- API PÚBLICA: asignar alturas a una frase (sistema) -----
+  // measures: array por compás con {realNotes:[{beats,pulseStart,pulseIdx,inGroup,firstOfGroup,lastOfGroup}], harmRoman, seventh}
+  // opts: {startDeg, cadDeg, establish, midStopIdx, midStopDeg}
+  // Devuelve array de MIDI (uno por nota real, en orden) o null si algo falla.
+  function assignPhrase(measures, key, clef, rand, opts){
+    const {slots, scale, tonicPc, refs}=buildSlots(measures, key, clef);
+    if(!slots.length || !scale.length) return null;
+    const idxs=composePhrase(scale, tonicPc, slots, rand, opts||{});
+    return idxs.map((i,k)=>{ const j=Math.max(0,Math.min(scale.length-1,i)); return {midi:scale[j].midi, key:scale[j].key, deg:degreeOf(scale,j,tonicPc)}; });
+  }
+
+  return { assignPhrase, buildScaleAcc, degreeOf, chordDegsOf, tendencyTonesOf, isDominantFunction, ROMANIDX };
+})();
+
+
+// genera SOLO las figuras rítmicas de un compás (sin asignar alturas). Devuelve {figs, pulseStartReal, realDurs}
+function buildRhythmFigs(seq, ts){
   const figs=[];
   seq.forEach(cell=>{
     const variant=pick(cell.variants);
-    variant.forEach(raw=>{
-      const rs=rawStr(raw);
-      figs.push({raw:rs, cell, rest:rs.includes('r')});
-    });
+    variant.forEach(raw=>{ const rs=rawStr(raw); figs.push({raw:rs, cell, rest:rs.includes('r')}); });
   });
-  // calcular posición en semicorcheas y marcar qué notas reales inician pulso
   const PS={'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'4/4':4,'2/2':8,'3/2':8,'4/2':8}[ts]||4;
-  let pos=0; const pulseStartReal=[];
+  // duración del PULSO en semicorcheas: compuesto (den 8, num múltiplo de 3) = negra con puntillo = 6;
+  // 2/2,3/2,4/2 = blanca = 8; resto (simples den 4) = negra = 4.
+  const [tn,td]=ts.split('/').map(Number);
+  const pulseSemis = (td===8 && tn%3===0) ? 6 : (td===2 ? 8 : 4);
+  let pos=0; const pulseStartReal=[]; const realPulseIdx=[];
   figs.forEach(f=>{
     const base=vfDur(f.raw);
     let dur = f.cell.tuplet ? (PS*cellPulses(f.cell))/(f.cell.variants[0].length) : (DURS[base]||1);
-    if(!f.rest){ pulseStartReal.push(Math.abs(pos % PS) < 1e-6); }
+    if(!f.rest){
+      pulseStartReal.push(Math.abs(pos % pulseSemis) < 1e-6);   // ¿ataca justo al inicio de un pulso?
+      realPulseIdx.push(Math.floor(pos/pulseSemis + 1e-9));     // índice de pulso dentro del compás
+    }
     pos+=dur;
   });
+  const realDurs=figs.filter(f=>!f.rest).map(f=>DURS[vfDur(f.raw)]||1);
+  return {figs, pulseStartReal, realDurs, realPulseIdx};
+}
+
+// ===== ASIGNACIÓN MELÓDICA POR FRASE (sistema) usando MELOPRO =====
+// Genera las figuras rítmicas de todos los compases del sistema (UNA vez), construye el input armónico
+// y deja que MELOPRO asigne las alturas de toda la frase de golpe (arco + conducción + compensación).
+// Guarda las figuras resueltas en sys._measFigs para que el render las dibuje tal cual.
+const ROMAN_NAMES=['I','ii','iii','IV','V','vi','viio'];
+// Recibe las FIGURAS YA GENERADAS por el motor de ACCESO (cuadratura intacta) y solo reasigna las ALTURAS
+// con MELOPRO. realFigsByMeasure: array por compás de las figs reales [{raw,cell,rest,...}].
+function assignSystemMelodyMELOPRO(sys, key, realFigsByMeasure, phraseOpts){
+  const ts=sys.ts, clef=sys.clef;
+  const PS={'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'4/4':4,'2/2':8,'3/2':8,'4/2':8}[ts]||4;
+  const [tn,td]=ts.split('/').map(Number);
+  const pulseSemis=(td===8 && tn%3===0)?6:(td===2?8:4);
+  const meloMeasures=[];
+  realFigsByMeasure.forEach((figs, mi)=>{
+    // recorrer las figuras reales calculando posición (para pulseStart) sin tocar el ritmo
+    let pos=0; const realNotes=[]; const realFigs=[];
+    figs.forEach(f=>{
+      const base=vfDur(f.raw);
+      let dur = f.cell.tuplet ? (PS*cellPulses(f.cell))/(f.cell.variants[0].length) : (DURS[base]||1);
+      if(!f.rest){
+        realNotes.push({ beats:(DURS[base]||1)/4, pulseStart:(Math.abs(pos%pulseSemis)<1e-6),
+                         pulseIdx:Math.floor(pos/pulseSemis+1e-9), inGroup:!!f.cell.tuplet,
+                         firstOfGroup:false, lastOfGroup:false, _fig:f });
+        realFigs.push(f);
+      }
+      pos+=dur;
+    });
+    // marcar primera/última de cada grupo de valoración especial (figuras consecutivas de la misma célula tuplet)
+    realFigs.forEach((f,ii)=>{ if(f.cell.tuplet){
+      realNotes[ii].firstOfGroup=(ii===0 || realFigs[ii-1].cell!==f.cell);
+      realNotes[ii].lastOfGroup =(ii===realFigs.length-1 || realFigs[ii+1].cell!==f.cell);
+    }});
+    const roman = (sys.harmony && sys.harmony[mi]!=null) ? ROMAN_NAMES[sys.harmony[mi]] : 'I';
+    const seventh = (roman==='V' && phraseOpts && phraseOpts.cadDeg===0 && mi===realFigsByMeasure.length-2);
+    meloMeasures.push({ realNotes, harmRoman:roman, seventh });
+  });
+  const assigned = MELOPRO.assignPhrase(meloMeasures, key, clef, RNG, phraseOpts||{});
+  if(assigned){
+    let ai=0;
+    meloMeasures.forEach(mm=>{ mm.realNotes.forEach(rn=>{ if(assigned[ai]){ rn._fig.midi=assigned[ai].midi; rn._fig.key=assigned[ai].key; rn._fig._deg=assigned[ai].deg; } ai++; }); });
+    // POST-PROCESO: sensibles del modo menor (MELOPRO usa la escala natural; aquí elevamos el 7º grado
+    // según el criterio de Iago: SENSIBLE por defecto, 7º natural solo en descenso escalístico seguido;
+    // bajo función de DOMINANTE (acorde V o viio) la sensible es OBLIGATORIA: el V es mayor, innegociable).
+    if(key.minor){ applyMinorLeadingTones(meloMeasures, key); }
+    return true;
+  }
+  return false;
+}
+
+// Eleva el 7º grado a SENSIBLE sobre la melodía ya generada (lista de measures con realNotes._fig.midi).
+// Trabaja frase a frase para poder mirar el contexto (nota anterior/siguiente y el acorde de cada compás).
+function applyMinorLeadingTones(meloMeasures, key){
+  // aplanar todas las notas reales de la frase en orden, con su acorde
+  const seq=[];
+  meloMeasures.forEach(mm=>{ const roman=mm.harmRoman; const dom=(roman==='V'||roman==='viio');
+    mm.realNotes.forEach(rn=>{ seq.push({fig:rn._fig, dom}); }); });
+  const deg=(m)=>(((m-key.tonic)%12)+12)%12;
+  const sg=(a,b)=>{ if(a===b)return 0; const semis=[0,2,3,5,7,8,10]; // grados menor natural
+    const dir=b>a?1:-1; let cur=a,g=0; // contar grados de escala natural entre a y b
+    while(cur!==b && g<24){ // avanzar al siguiente grado natural
+      let nd=cur; do{ nd+=dir; }while(!semis.includes(((nd-key.tonic)%12+12)%12)); cur=nd; g++; }
+    return dir*g; };
+  for(let i=0;i<seq.length;i++){
+    const m=seq[i].fig.midi; if(deg(m)!==10) continue;            // solo VII natural
+    const prev=i>0?seq[i-1].fig.midi:null, next=i+1<seq.length?seq[i+1].fig.midi:null;
+    const comesDown = prev!=null && m<prev && Math.abs(sg(prev,m))===1;
+    const goesDown  = next!=null && next<m && Math.abs(sg(m,next))===1;
+    const goesUpToTonic = next!=null && next>m && deg(next)===0 && Math.abs(sg(m,next))===1;  // VII -> tónica ascendente
+    const descending = comesDown || goesDown;                     // forma parte de una línea descendente
+    // SENSIBLE cuando: resuelve subiendo a la tónica, O no está en una línea descendente.
+    // En una BAJADA escalística el 7º se queda NATURAL aunque el acorde sea dominante (menor natural
+    // descendente); forzar la sensible ahí crea 2ª aumentada y giros sin sentido melódico.
+    const raise = goesUpToTonic || !descending;
+    if(raise){
+      seq[i].fig.midi = m+1;                                      // VII -> sensible
+      seq[i].fig.key = spellAccTop(m+1, key);
+      // evitar 2ª aumentada con un VI natural adyacente que ASCIENDE hacia la sensible -> elevar VI (melódico)
+      if(prev!=null && deg(prev)===8 && (m+1)>prev && Math.abs((m+1)-prev)===3){ seq[i-1].fig.midi=prev+1; seq[i-1].fig.key=spellAccTop(prev+1,key); }
+      if(next!=null && deg(next)===8 && next>(m+1) && Math.abs(next-(m+1))===3){ seq[i+1].fig.midi=next+1; seq[i+1].fig.key=spellAccTop(next+1,key); }
+    }
+  }
+}
+// deletreo de una nota alterada para la StaveNote (usa spellMidi, que ya da do# para la sensible)
+function spellAccTop(midi, key){
+  const sp=(typeof spellMidi==='function')? spellMidi(midi,key) : null;
+  if(sp){ return sp.letter + (sp.alt==='#'?'#':sp.alt==='b'?'b':'') + '/' + sp.oct; }
+  const names=['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
+  return names[((midi%12)+12)%12]+'/'+(Math.floor(midi/12)-1);
+}
+
+
+// buildMeasureNotes (motor antiguo, usado solo como FALLBACK si MELOPRO no generó la frase)
+function buildMeasureNotes(seq, ts, clef, key, isFinal, melCursor, prevDur, melState, seedNote, isSystemEnd, chordRoman, nextChordRoman){
+  const figs=[];
+  seq.forEach(cell=>{
+    const variant=pick(cell.variants);
+    variant.forEach(raw=>{ const rs=rawStr(raw); figs.push({raw:rs, cell, rest:rs.includes('r')}); });
+  });
+  const PS={'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'4/4':4,'2/2':8,'3/2':8,'4/2':8}[ts]||4;
+  let pos=0; const pulseStartReal=[];
+  figs.forEach(f=>{ const base=vfDur(f.raw); let dur = f.cell.tuplet ? (PS*cellPulses(f.cell))/(f.cell.variants[0].length) : (DURS[base]||1); if(!f.rest){ pulseStartReal.push(Math.abs(pos % PS) < 1e-6); } pos+=dur; });
   const realDurs=figs.filter(f=>!f.rest).map(f=>DURS[vfDur(f.raw)]||1);
   // estado melódico persistente entre compases (saltos + enfriamiento)
   const ms = melState || { leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
   ms.hadBigLeapThisMeasure = false;             // se evalúa dentro de noteSeqFor
-  const mel=noteSeqFor(realDurs, clef, key, melCursor!=null?melCursor:null, pulseStartReal, prevDur, ms, seedNote);
+  const mel=noteSeqFor(realDurs, clef, key, melCursor!=null?melCursor:null, pulseStartReal, prevDur, ms, seedNote, {roman:(chordRoman!=null?chordRoman:0), nextRoman:nextChordRoman});
   // tras cerrar el compás: gestionar el contador de enfriamiento (en compases)
   if(ms.hadBigLeapThisMeasure){ ms.cooldown = 2; }    // 4ª+ en este compás -> 2 compases sin saltos grandes
   else if(ms.cooldown>0){ ms.cooldown--; }            // ir descontando
@@ -1753,25 +2511,23 @@ function buildMeasureNotes(seq, ts, clef, key, isFinal, melCursor, prevDur, melS
       }
     }
   }
-  // fin de SISTEMA (no de ejercicio): la última nota debe ser del acorde de tónica (tónica/3ª/5ª)
+  // fin de SISTEMA (no de ejercicio): la última nota cierra en el acorde del PLAN de ese compás
+  // (I si la frase es auténtica, V si es semicadencia). Así cada frase "respira" en su destino.
   else if(isSystemEnd){
     const loC=clef==='bass'?40:57, hiC=clef==='bass'?64:79;
     const realIdx=[]; figs.forEach((f,i)=>{ if(!f.rest) realIdx.push(i); });
     if(realIdx.length){
       const lastI=realIdx[realIdx.length-1];
       const prevMidi = realIdx.length>=2 ? figs[realIdx[realIdx.length-2]].midi : figs[lastI].midi;
-      // clases de altura del acorde de tónica
-      const base = (clef==='bass'? key.tonic-12 : key.tonic);
-      const third = base + (key.minor?3:4);
-      const fifth = base + 7;
-      const pcs = [base,third,fifth].map(n=>((n%12)+12)%12);
-      // candidatas: todas las notas de la tesitura cuya clase de altura sea del acorde
+      // clases de altura del acorde de cierre = acorde del plan de este compás (chordRoman)
+      const semis=key.minor?[0,2,3,5,7,8,10]:[0,2,4,5,7,9,11];
+      const r=(((chordRoman!=null?chordRoman:0)%7)+7)%7;
+      let pcs=[r,(r+2)%7,(r+4)%7].map(d=>(((key.tonic+semis[d])%12)+12)%12);
+      if(key.minor && (r===4||r===6)){ const viiNat=(((key.tonic+semis[6])%12)+12)%12, lead=((key.tonic+11)%12); pcs=pcs.map(p=>p===viiNat?lead:p); }
       let cands=[]; for(let m=loC;m<=hiC;m++){ if(pcs.includes(((m%12)+12)%12)) cands.push(m); }
       if(cands.length){
-        // elegir la más cercana a la nota anterior (cierre suave)
         let t=cands.reduce((best,m)=> Math.abs(m-prevMidi)<Math.abs(best-prevMidi)?m:best, cands[0]);
         figs[lastI].midi=t; lastMidi=t;
-        // misma protección: si la penúltima/última es semicorchea y hay salto, acercar por 2ª
         if(realIdx.length>=2){
           const prevI=realIdx[realIdx.length-2];
           const prevDurShort=(DURS[vfDur(figs[prevI].raw)]||4)<2;
@@ -1831,6 +2587,7 @@ function regen(){
         return {ts, clef, measures, continued6, startDeg};
       });
       const model={struct,key,systems};
+      buildHarmonyPlan(model, RNG);              // plan armónico por compás (guía melódica)
       // renderizar (genera la melodía) y medir repeticiones en el MISMO paso
       LAST_MELODY=[];
       renderAll(model);                          // esto ya dibuja en pantalla
@@ -1875,6 +2632,27 @@ function renderAll(model){
       for(let k=0;k<(sys.startDeg||0);k++){ n=nextScaleNote(n,1,model.key); }
       while(n<lo) n+=12; while(n>hi) n-=12;
       sys._melSeed=n;   // primera nota fija del sistema
+    }
+    // ===== PASADA 1: generar las FIGURAS RÍTMICAS de todos los compases del sistema (cuadratura del motor
+    // de ACCESO, intacta), y luego dejar que MELOPRO asigne las ALTURAS de toda la frase de golpe. =====
+    {
+      const realFigsByMeasure=[];
+      // generar figuras con el motor original (no se tocan el ritmo ni la cuadratura); descartamos sus alturas
+      let cursor=sys._melCursor, dur=sys._melDur;
+      const tmpState={ leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
+      sys.measures.forEach((seq, mi)=>{
+        const res=buildMeasureNotes(seq, sys.ts, sys.clef, model.key, false, cursor, dur, tmpState, (mi===0?sys._melSeed:undefined), false, (sys.harmony?sys.harmony[mi]:0), null);
+        realFigsByMeasure.push(res.figs);
+        cursor=res.lastMidi; dur=res.lastDur;
+      });
+      sys._realFigs=realFigsByMeasure;
+      // MELOPRO reasigna alturas SOBRE esas figuras cuadradas
+      const isFirstSys=(si===0);
+      const cadDeg = (sys.cadence==='half') ? 4 : 0;   // semicadencia repone en 5º grado; auténtica en tónica
+      const startDeg = (isFirstSys ? 0 : (sys.startDeg!=null?sys.startDeg:null));
+      try{
+        sys._meloproOK = assignSystemMelodyMELOPRO(sys, model.key, realFigsByMeasure, { startDeg, cadDeg, establish:isFirstSys });
+      }catch(e){ sys._meloproError=e.message; sys._meloproOK=false; }
     }
     // ancho de cada compás según su "peso" (nº de figuras), repartiendo el ancho del sistema
     const totalW = W-24;
@@ -1921,16 +2699,24 @@ function renderAll(model){
         stave.setEndBarType(VF.Barline.type.END);
       }
       stave.setContext(ctx).draw();
-      const isFinal = (si===model.systems.length-1 && isLastMeasureOfSystem);
-      // fin de LÍNEA melódica: último compás de esta entrada y la siguiente no es la continuación 6/8.
-      // En esos puntos la melodía debe cerrar en nota del acorde (tónica/3ª/5ª).
-      const isSystemEnd = isLastMeasureOfSystem && !(nextSys && nextSys.continued6);
-      if(!sys._melState) sys._melState={ leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
-      const seedNote = (mi===0 && sys._melCursor===undefined) ? sys._melSeed : undefined;
-      const res=buildMeasureNotes(seq, sys.ts, sys.clef, model.key, isFinal, sys._melCursor, sys._melDur, sys._melState, seedNote, isSystemEnd);
-      sys._melCursor = res.lastMidi;
-      sys._melDur = res.lastDur;
-      drawFigs(ctx, stave, res.figs, sys.ts, sys.clef, measureW);
+      // MELODÍA: usar las figuras de la PASADA 1 (cuadratura del motor de ACCESO + alturas de MELOPRO).
+      // Si MELOPRO falló para este sistema, las figuras conservan las alturas del motor antiguo (fallback).
+      let figsThis;
+      if(sys._realFigs && sys._realFigs[mi]){
+        figsThis = sys._realFigs[mi];
+      } else {
+        const isFinal = (si===model.systems.length-1 && isLastMeasureOfSystem);
+        const isSystemEnd = isLastMeasureOfSystem && !(nextSys && nextSys.continued6);
+        if(!sys._melState) sys._melState={ leapDir:0, leapRun:0, cooldown:0, hadBigLeapThisMeasure:false };
+        const seedNote = (mi===0 && sys._melCursor===undefined) ? sys._melSeed : undefined;
+        const chordRoman = (sys.harmony && sys.harmony[mi]!=null) ? sys.harmony[mi] : 0;
+        const nextChordRoman = (sys.harmony && sys.harmony[mi+1]!=null) ? sys.harmony[mi+1] : null;
+        const res=buildMeasureNotes(seq, sys.ts, sys.clef, model.key, isFinal, sys._melCursor, sys._melDur, sys._melState, seedNote, isSystemEnd, chordRoman, nextChordRoman);
+        sys._melCursor = res.lastMidi; sys._melDur = res.lastDur; figsThis=res.figs;
+      }
+      // acumular notas reales para las estadísticas de repetición (igual que antes)
+      if(typeof LAST_MELODY!=='undefined' && LAST_MELODY){ LAST_MELODY.push(figsThis.filter(f=>!f.rest).map(f=>f.midi)); }
+      drawFigs(ctx, stave, figsThis, sys.ts, sys.clef, measureW, model.key);
       // registrar pulsos de este compás para el metrónomo.
       const ppmThis = pulsesPerMeasure(sys.ts);
       const measureX0 = stave.getNoteStartX();
@@ -1956,7 +2742,7 @@ function renderAll(model){
       // en vez de recalcular, que era la fuente de los desajustes. Los silencios NO suenan pero su
       // _start/_dur ya están contados en la cuadratura, así que el reloj queda perfecto.
       const psSemis = ({'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'2/2':8,'3/2':8,'4/2':8})[sys.ts]||4;
-      res.figs.forEach(f=>{
+      figsThis.forEach(f=>{
         if(!f.rest){
           const startSemis = (f._start!=null)? f._start : 0;
           RHYTHM_MAP.push({
@@ -1980,8 +2766,80 @@ function keySigSpec(key){
   return MAP[key.name]||'C';
 }
 
-function drawFigs(ctx, stave, figs, ts, clef, measureW){
+// Deletreo de notas según la armadura (sostenidos o bemoles) y cálculo de la alteración a DIBUJAR.
+// orden de sostenidos: F C G D A E B ; orden de bemoles: B E A D G C F
+const SHARP_ORDER=['f','c','g','d','a','e','b'];
+const FLAT_ORDER =['b','e','a','d','g','c','f'];
+function keySharpFlatSet(key){
+  const sf=key.sf||0; const set={};   // letra -> '#' | 'b'
+  if(sf>0){ for(let i=0;i<sf;i++) set[SHARP_ORDER[i]]='#'; }
+  else if(sf<0){ for(let i=0;i<(-sf);i++) set[FLAT_ORDER[i]]='b'; }
+  return set;
+}
+// nombre natural (letra) y alteración de un MIDI, eligiendo deletreo coherente con la armadura.
+// CASO ESPECIAL: la sensible del menor (y el VI# del menor melódico) se deletrean por su FUNCIÓN
+// (elevación del grado natural), no por la armadura: en Re menor la sensible es DO#, nunca re♭.
+function spellMidi(midi, key){
+  const pc=((midi%12)+12)%12;
+  // Alteraciones cromáticas características del modo menor, deletreadas por su FUNCIÓN:
+  //  - 11 semitonos sobre la tónica = SENSIBLE (VII elevado): se escribe como la letra del 7º grado natural
+  //    con sostenido (do# en Re menor) o becuadro si el 7º natural ya es bemol en la armadura.
+  //  - 9 semitonos = 6º grado ELEVADO (menor melódico ascendente): se escribe como la letra del 6º grado
+  //    natural alterada (mi♮ en Sol menor, no re#).
+  if(key.minor){
+    const tpc=((key.tonic%12)+12)%12;
+    const semisFromTonic=((pc - tpc)+12)%12;
+    // grados naturales del menor y su LETRA (re-mi-fa-sol-la-sib-do desde la tónica)
+    const natSemis=[0,2,3,5,7,8,10];
+    const letterCycle=['c','d','e','f','g','a','b'];
+    // letra de la tónica
+    const tonicLetterIdx = letterCycle.indexOf( ['c','c','d','d','e','f','f','g','g','a','a','b'][tpc] );
+    if(semisFromTonic===11 || semisFromTonic===9){
+      // grado natural inmediatamente inferior (VII para 11, VI para 9) y su letra
+      const baseDegSemis = (semisFromTonic===11)? 10 : 8;   // VII natural (10) o VI natural (8)
+      // número de grado diatónico (0..6) de ese grado natural
+      const degNum = natSemis.indexOf(baseDegSemis);        // VII=6, VI=5
+      const letterIdx = (tonicLetterIdx + degNum) % 7;
+      const letter = letterCycle[letterIdx];
+      // alteración: comparar el pitch real con el natural de esa letra para decidir # o becuadro
+      const natPcOfLetter = {c:0,d:2,e:4,f:5,g:7,a:9,b:11}[letter];
+      let diff = (pc - natPcOfLetter + 12) % 12; if(diff>6) diff-=12;   // -1,0,+1...
+      const alt = diff>0 ? '#' : (diff<0 ? 'b' : 'n');
+      const oct = Math.floor(midi/12)-1;
+      return {letter, alt, oct};
+    }
+  }
+  const useFlats=(key.sf||0)<0;
+  const sharpSpell=[['c',0],['c','#'],['d',0],['d','#'],['e',0],['f',0],['f','#'],['g',0],['g','#'],['a',0],['a','#'],['b',0]];
+  const flatSpell =[['c',0],['d','b'],['d',0],['e','b'],['e',0],['f',0],['g','b'],['g',0],['a','b'],['a',0],['b','b'],['b',0]];
+  const [letter,alt]=(useFlats?flatSpell:sharpSpell)[pc];
+  const oct=Math.floor(midi/12)-1;
+  return {letter, alt:(alt===0?'n':alt), oct};
+}
+// devuelve la alteración a DIBUJAR ('#','b','n') o null si no hace falta, comparando con la armadura y el
+// estado del compás (una alteración se mantiene hasta el fin del compás).
+function accidentalFor(midi, key, accState){
+  const sp=spellMidi(midi, key);
+  const keySet=keySharpFlatSet(key);
+  const keyAlt = keySet[sp.letter] || 'n';      // alteración que la armadura ya aplica a esta letra
+  const realAlt = sp.alt;                        // alteración real de la nota (n/#/b)
+  const slot = sp.letter+sp.oct;                 // identificador letra+octava para el estado del compás
+  const shownInMeasure = accState[slot];         // alteración ya mostrada en este compás para esa letra/octava
+  let draw=null;
+  if(shownInMeasure!==undefined){
+    // ya hubo una alteración en el compás para esta nota: dibujar solo si cambia
+    if(realAlt!==shownInMeasure) draw=realAlt;
+  } else {
+    // primera vez en el compás: dibujar si difiere de la armadura
+    if(realAlt!==keyAlt) draw=realAlt;
+  }
+  // registrar el estado (lo que queda "sonando" en el compás para esa letra/octava)
+  accState[slot]=realAlt;
+  return draw;
+}
+function drawFigs(ctx, stave, figs, ts, clef, measureW, key){
   const PS={'3/8':6,'6/8':6,'9/8':6,'2/4':4,'3/4':4,'4/4':4,'2/2':8,'3/2':8,'4/2':8}[ts]||4;
+  const accState={};   // estado de alteraciones dentro del compás (letra+octava -> alteración mostrada)
   // 1) calcular posición REAL (en semicorcheas) de cada figura y su pulso
   let pos=0;
   figs.forEach((f,fi)=>{
@@ -2040,8 +2898,17 @@ function drawFigs(ctx, stave, figs, ts, clef, measureW){
       if(f.raw.includes('d')) rn.addModifier(new VF.Dot(),0);
       return rn;
     }
-    const sn=new VF.StaveNote({keys:[midiToKey(f.midi)],duration:dur,clef,stem_direction:f._stem});
+    const sp0 = key ? spellMidi(f.midi, key) : null;
+    const keyName = sp0 ? (sp0.letter + (sp0.alt==='#'?'#':sp0.alt==='b'?'b':'') + '/' + sp0.oct) : midiToKey(f.midi);
+    const sn=new VF.StaveNote({keys:[keyName],duration:dur,clef,stem_direction:f._stem});
     if(f.raw.includes('d')) sn.addModifier(new VF.Dot(),0);
+    // ALTERACIÓN VISUAL: VexFlow no dibuja sostenidos/bemoles por sí solo; hay que añadirlos cuando la
+    // alteración real de la nota DIFIERE de la armadura (sensible del menor, etc.). Sin esto, p.ej. el
+    // sol# en La menor se vería como sol natural.
+    if(key){
+      const acc=accidentalFor(f.midi, key, accState);   // '#','b','n' o null
+      if(acc){ sn.addModifier(new VF.Accidental(acc), 0); }
+    }
     return sn;
   });
   // 3) tuplets (agrupar figuras consecutivas de la misma célula tuplet) — ANTES de formatear
