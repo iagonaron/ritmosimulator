@@ -3167,5 +3167,25 @@ window.RS.onCatalogChange = function(){ /* fase B: re-leer pool. por ahora regen
 
 })();
 </script>
+<script>
+/* FASE 9.1 · tiempo de uso libre (Suite at home) */
+(function(){
+  'use strict';
+  try{
+    var ses=null; try{ ses=JSON.parse(localStorage.getItem('lmeav_session')||'null'); }catch(e){}
+    var cuenta=ses&&ses.cuenta_id; if(!cuenta) return;
+    var URL_SB='https://woiptkyrxkbpnvioypit.supabase.co';
+    var ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvaXB0a3lyeGticG52aW95cGl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NzI2ODYsImV4cCI6MjA5MjA0ODY4Nn0.B2nKgj5rD0rkdLeMIrd9KgD8lUPWsBT4Y7aCtmnvbjA';
+    function ping(){
+      if(document.hidden) return;
+      fetch(URL_SB+'/rest/v1/rpc/suite_uso_ping',{method:'POST',
+        headers:{'Content-Type':'application/json','apikey':ANON,'Authorization':'Bearer '+ANON},
+        body:JSON.stringify({p_cuenta_id:cuenta,p_app:'accesoritmo'})}).catch(function(){});
+    }
+    setTimeout(ping,4000);
+    setInterval(ping,60000);
+  }catch(e){}
+})();
+</script>
 </body>
 </html>
